@@ -280,47 +280,70 @@ class Shop:
         for item in self.items:
             item["purchases"] = 0
 
-    def draw(self, screen, font, player, points):
+    def draw(self, screen, font, small_font, player, points):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 170))
+        overlay.fill((0, 0, 0, 175))
         screen.blit(overlay, (0, 0))
 
-        panel = pygame.Rect(230, 45, 820, 630)
-        pygame.draw.rect(screen, "darkgray", panel)
-        pygame.draw.rect(screen, "black", panel, 4)
+        panel = pygame.Rect(55, 35, WIDTH - 110, HEIGHT - 70)
+        item_panel = pygame.Rect(panel.x + 30, panel.y + 115, 700, panel.height - 150)
+        stat_panel = pygame.Rect(item_panel.right + 25, item_panel.y, 385, item_panel.height)
 
-        title = font.render("Shop - repeat buys allowed - press TAB to close", True, "white")
+        pygame.draw.rect(screen, (55, 55, 55), panel, border_radius=12)
+        pygame.draw.rect(screen, "black", panel, 4, border_radius=12)
+        pygame.draw.rect(screen, (85, 85, 85), item_panel, border_radius=8)
+        pygame.draw.rect(screen, (185, 185, 185), stat_panel, border_radius=8)
+        pygame.draw.rect(screen, "black", item_panel, 3, border_radius=8)
+        pygame.draw.rect(screen, "black", stat_panel, 3, border_radius=8)
+
+        title = font.render("SHOP", True, "white")
         screen.blit(title, (panel.x + 30, panel.y + 20))
+        subtitle = small_font.render("Repeat buys allowed. Press TAB to close.", True, "lightgray")
+        screen.blit(subtitle, (panel.x + 30, panel.y + 64))
 
         points_text = font.render(f"Points: {points}", True, "yellow")
-        screen.blit(points_text, (panel.x + 30, panel.y + 60))
+        screen.blit(points_text, (panel.right - points_text.get_width() - 35, panel.y + 25))
 
+        item_header = small_font.render("UPGRADES", True, "white")
+        stat_header = small_font.render("CURRENT STATS", True, "black")
+        screen.blit(item_header, (item_panel.x + 18, item_panel.y + 14))
+        screen.blit(stat_header, (stat_panel.x + 18, stat_panel.y + 14))
+
+        row_height = 40
+        row_y = item_panel.y + 50
         for i, item in enumerate(self.items):
             cost = self.cost(item)
             affordable = points >= cost
-            color = "white" if affordable else "gray"
-            text = font.render(
-                f"{item['label']} - {cost} pts (bought {item['purchases']})",
-                True,
-                color,
-            )
-            screen.blit(text, (panel.x + 30, panel.y + 110 + i * 42))
+            y = row_y + i * row_height
+            row_rect = pygame.Rect(item_panel.x + 12, y - 5, item_panel.width - 24, row_height - 4)
+            pygame.draw.rect(screen, (45, 90, 55) if affordable else (70, 70, 70), row_rect, border_radius=6)
+
+            label = small_font.render(item["label"], True, "white" if affordable else "lightgray")
+            cost_text = small_font.render(f"{cost} pts", True, "yellow" if affordable else "gray")
+            bought_text = small_font.render(f"bought {item['purchases']}", True, "white" if affordable else "gray")
+
+            screen.blit(label, (row_rect.x + 10, y))
+            screen.blit(cost_text, (row_rect.right - 190, y))
+            screen.blit(bought_text, (row_rect.right - bought_text.get_width() - 10, y))
 
         stats = [
-            f"Health: {player.health}/{player.max_health}",
-            f"Damage: {player.damage}",
-            f"Shot cooldown: {player.shot_cooldown:.2f}s",
-            f"Move speed: {player.speed}",
-            f"Bullet speed: {player.bullet_speed}",
-            f"Bullet size: {player.bullet_radius}",
-            f"Bullets/shot: {player.bullet_count}",
-            f"Point bonus: +{player.point_bonus}",
-            f"Regen: {player.regen_rate:.1f}/s",
-            f"XP gain: x{player.xp_multiplier:.2f}",
+            ("Health", f"{player.health}/{player.max_health}"),
+            ("Damage", str(player.damage)),
+            ("Shot cooldown", f"{player.shot_cooldown:.2f}s"),
+            ("Move speed", str(player.speed)),
+            ("Bullet speed", str(player.bullet_speed)),
+            ("Bullet size", str(player.bullet_radius)),
+            ("Bullets/shot", str(player.bullet_count)),
+            ("Point bonus", f"+{player.point_bonus}"),
+            ("Regen", f"{player.regen_rate:.1f}/s"),
+            ("XP gain", f"x{player.xp_multiplier:.2f}"),
         ]
-        for i, stat in enumerate(stats):
-            text = font.render(stat, True, "black")
-            screen.blit(text, (panel.x + 460, panel.y + 110 + i * 42))
+        for i, (name, value) in enumerate(stats):
+            y = stat_panel.y + 55 + i * 40
+            name_text = small_font.render(name, True, "black")
+            value_text = small_font.render(value, True, "black")
+            screen.blit(name_text, (stat_panel.x + 18, y))
+            screen.blit(value_text, (stat_panel.right - value_text.get_width() - 18, y))
 
 
 def draw_text(screen, font, text, color, x, y):
@@ -505,31 +528,33 @@ def draw_hud(
     wave_number,
     bosses_defeated,
 ):
-    max_bar_width = 400
-    bar_width = min(max_bar_width, player.max_health * 40)
-    fill_width = int(bar_width * player.health / player.max_health) if player.max_health else 0
-    pygame.draw.rect(screen, "red", (40, 10, fill_width, 20))
-    pygame.draw.rect(screen, "black", (40, 10, bar_width, 20), 3)
+    panel = pygame.Rect(25, 15, 410, 345)
+    pygame.draw.rect(screen, (245, 245, 245), panel, border_radius=10)
+    pygame.draw.rect(screen, "black", panel, 3, border_radius=10)
 
-    xp_bar_width = 240
-    xp_fill_width = int(xp_bar_width * xp / xp_to_next_level) if xp_to_next_level else 0
-    pygame.draw.rect(screen, "gold", (40, 240, xp_fill_width, 18))
-    pygame.draw.rect(screen, "black", (40, 240, xp_bar_width, 18), 3)
+    bar_width = 250
+    health_fill = int(bar_width * player.health / player.max_health) if player.max_health else 0
+    xp_fill = int(bar_width * xp / xp_to_next_level) if xp_to_next_level else 0
 
-    draw_text(screen, font, f"Player Health: {player.health}/{player.max_health}", "black", 40, 35)
-    draw_text(screen, font, f"Level: {level}", "black", 40, 65)
-    draw_text(screen, font, f"XP: {xp}/{xp_to_next_level}", "black", 40, 95)
-    draw_text(screen, font, f"Kills: {kills}", "black", 40, 125)
-    draw_text(screen, font, f"Points: {points}", "black", 40, 155)
-    draw_text(screen, font, f"Time: {int(game_time)}s", "black", 40, 185)
-    draw_text(screen, font, f"Infinite Wave: {wave_number}", "black", 40, 215)
-    draw_text(screen, font, f"Bosses Defeated: {bosses_defeated}", "black", 40, 265)
+    draw_text(screen, font, f"Health: {player.health}/{player.max_health}", "black", panel.x + 20, panel.y + 18)
+    pygame.draw.rect(screen, "darkred", (panel.x + 20, panel.y + 55, bar_width, 18))
+    pygame.draw.rect(screen, "red", (panel.x + 20, panel.y + 55, health_fill, 18))
+    pygame.draw.rect(screen, "black", (panel.x + 20, panel.y + 55, bar_width, 18), 2)
 
-    if player.can_shoot():
-        draw_text(screen, font, "Shot Ready", "green", 40, 295)
-    else:
-        draw_text(screen, font, f"Cooldown: {player.shot_timer:.1f}s", "red", 40, 295)
+    draw_text(screen, font, f"Level {level}  XP {xp}/{xp_to_next_level}", "black", panel.x + 20, panel.y + 85)
+    pygame.draw.rect(screen, (120, 90, 0), (panel.x + 20, panel.y + 122, bar_width, 18))
+    pygame.draw.rect(screen, "gold", (panel.x + 20, panel.y + 122, xp_fill, 18))
+    pygame.draw.rect(screen, "black", (panel.x + 20, panel.y + 122, bar_width, 18), 2)
 
+    draw_text(screen, font, f"Kills: {kills}", "black", panel.x + 20, panel.y + 155)
+    draw_text(screen, font, f"Points: {points}", "black", panel.x + 210, panel.y + 155)
+    draw_text(screen, font, f"Time: {int(game_time)}s", "black", panel.x + 20, panel.y + 195)
+    draw_text(screen, font, f"Wave: {wave_number}", "black", panel.x + 210, panel.y + 195)
+    draw_text(screen, font, f"Bosses defeated: {bosses_defeated}", "black", panel.x + 20, panel.y + 235)
+
+    shot_text = "Shot Ready" if player.can_shoot() else f"Cooldown: {player.shot_timer:.1f}s"
+    shot_color = "green" if player.can_shoot() else "red"
+    draw_text(screen, font, shot_text, shot_color, panel.x + 20, panel.y + 275)
     draw_text(screen, font, "TAB: Shop", "black", WIDTH - 180, 20)
 
 
@@ -584,6 +609,7 @@ def main():
     pygame.display.set_caption("Survival Shooter")
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 36)
+    small_font = pygame.font.Font(None, 28)
     title_font = pygame.font.Font(None, 72)
 
     shop = Shop()
@@ -709,7 +735,7 @@ def main():
             )
 
             if shop.open:
-                shop.draw(screen, font, player, game["points"])
+                shop.draw(screen, font, small_font, player, game["points"])
             if state == "level_up":
                 draw_level_up(screen, font, title_font, game)
         elif state == "game_over":
