@@ -334,15 +334,9 @@ class Shop:
         return item["base_cost"] + item["cost_growth"] * item["purchases"]
 
     def layout(self):
-        panel = pygame.Rect(WIDTH - 465, 45, 440, HEIGHT - 90)
-        list_rect = pygame.Rect(panel.x + 12, panel.y + 76, panel.width - 24, 330)
-        stats_rect = pygame.Rect(
-            panel.x + 12,
-            list_rect.bottom + 12,
-            panel.width - 24,
-            panel.bottom - list_rect.bottom - 24,
-        )
-        return panel, list_rect, stats_rect
+        panel = pygame.Rect(WIDTH - 365, 45, 340, 445)
+        list_rect = pygame.Rect(panel.x + 10, panel.y + 72, panel.width - 20, 330)
+        return panel, list_rect
 
     def item_rect(self, index, list_rect):
         row_height = 31
@@ -365,7 +359,7 @@ class Shop:
         return points
 
     def try_buy_at_pos(self, pos, player, points):
-        _, list_rect, _ = self.layout()
+        _, list_rect = self.layout()
         for index, item in enumerate(self.items):
             if self.item_rect(index, list_rect).collidepoint(pos):
                 return self.buy_item(item, player, points)
@@ -408,16 +402,16 @@ class Shop:
             item["purchases"] = 0
 
     def draw(self, screen, font, small_font, tiny_font, player, points):
-        panel, list_rect, stats_rect = self.layout()
+        panel, list_rect = self.layout()
         pygame.draw.rect(screen, (45, 45, 45), panel, border_radius=12)
         pygame.draw.rect(screen, "black", panel, 4, border_radius=12)
 
         title = small_font.render("SHOP", True, "white")
-        screen.blit(title, (panel.x + 18, panel.y + 14))
+        screen.blit(title, (panel.x + 14, panel.y + 12))
         points_text = small_font.render(f"{points} pts", True, "yellow")
-        screen.blit(points_text, (panel.right - points_text.get_width() - 18, panel.y + 14))
-        hint = tiny_font.render("TAB close | click or number keys buy", True, "lightgray")
-        screen.blit(hint, (panel.x + 18, panel.y + 44))
+        screen.blit(points_text, (panel.right - points_text.get_width() - 14, panel.y + 12))
+        hint = tiny_font.render("Click rows or press 1-0. I = stats.", True, "lightgray")
+        screen.blit(hint, (panel.x + 14, panel.y + 42))
 
         pygame.draw.rect(screen, (68, 68, 68), list_rect, border_radius=8)
         pygame.draw.rect(screen, "black", list_rect, 2, border_radius=8)
@@ -430,39 +424,12 @@ class Shop:
             pygame.draw.rect(screen, (45, 85, 50) if affordable else (55, 55, 55), row_rect, border_radius=5)
 
             label = tiny_font.render(item["label"], True, "white" if affordable else "lightgray")
-            meta = tiny_font.render(f"{cost} pts | x{item['purchases']}", True, "yellow" if affordable else "gray")
-            screen.blit(label, (row_rect.x + 8, y))
-            screen.blit(meta, (row_rect.right - meta.get_width() - 8, y))
+            meta = tiny_font.render(f"{cost} | x{item['purchases']}", True, "yellow" if affordable else "gray")
+            screen.blit(label, (row_rect.x + 7, y))
+            screen.blit(meta, (row_rect.right - meta.get_width() - 7, y))
 
-        pygame.draw.rect(screen, (200, 200, 200), stats_rect, border_radius=8)
-        pygame.draw.rect(screen, "black", stats_rect, 2, border_radius=8)
-        stats_title = tiny_font.render("STATS / WEAPONS", True, "black")
-        screen.blit(stats_title, (stats_rect.x + 12, stats_rect.y + 10))
-
-        stats = [
-            ("HP", f"{player.health}/{player.max_health}"),
-            ("Damage", str(player.damage)),
-            ("Cooldown", f"{player.shot_cooldown:.2f}s"),
-            ("Move", str(player.speed)),
-            ("Bullet spd", str(player.bullet_speed)),
-            ("Bullets", str(player.bullet_count)),
-            ("Pierce", str(player.bullet_pierce)),
-            ("Rocket", f"Lv {player.rocket_level}"),
-            ("Laser", f"Lv {player.laser_level}"),
-            ("Heal/kill", f"+{player.kill_heal}"),
-            ("XP", f"x{player.xp_multiplier:.2f}"),
-            ("Regen", f"{player.regen_rate:.1f}/s"),
-        ]
-        column_width = stats_rect.width // 2
-        for i, (name, value) in enumerate(stats):
-            col = i // 6
-            row = i % 6
-            x = stats_rect.x + 12 + col * column_width
-            y = stats_rect.y + 42 + row * 27
-            name_text = tiny_font.render(name, True, "black")
-            value_text = tiny_font.render(value, True, "black")
-            screen.blit(name_text, (x, y))
-            screen.blit(value_text, (x + column_width - value_text.get_width() - 18, y))
+        footer = tiny_font.render("Detailed stats moved to the I menu.", True, "lightgray")
+        screen.blit(footer, (panel.x + 14, list_rect.bottom + 12))
 
 
 def draw_text(screen, font, text, color, x, y):
@@ -720,9 +687,29 @@ def explode_rocket(game, rocket):
     return leveled_up
 
 
+def player_stat_rows(player):
+    return [
+        ("Health", f"{player.health}/{player.max_health}"),
+        ("Damage", str(player.damage)),
+        ("Shot cooldown", f"{player.shot_cooldown:.2f}s"),
+        ("Move speed", str(player.speed)),
+        ("Bullet speed", str(player.bullet_speed)),
+        ("Bullet size", str(player.bullet_radius)),
+        ("Bullets/shot", str(player.bullet_count)),
+        ("Pierce", str(player.bullet_pierce)),
+        ("Rocket", f"Lv {player.rocket_level}"),
+        ("Laser", f"Lv {player.laser_level}"),
+        ("Heal/kill", f"+{player.kill_heal}"),
+        ("Point bonus", f"+{player.point_bonus}"),
+        ("XP gain", f"x{player.xp_multiplier:.2f}"),
+        ("Regen", f"{player.regen_rate:.1f}/s"),
+    ]
+
+
 def draw_hud(
     screen,
-    font,
+    small_font,
+    tiny_font,
     player,
     kills,
     points,
@@ -733,34 +720,70 @@ def draw_hud(
     wave_number,
     bosses_defeated,
 ):
-    panel = pygame.Rect(25, 15, 410, 345)
-    pygame.draw.rect(screen, (245, 245, 245), panel, border_radius=10)
-    pygame.draw.rect(screen, "black", panel, 3, border_radius=10)
+    panel = pygame.Rect(18, 14, 300, 150)
+    pygame.draw.rect(screen, (245, 245, 245), panel, border_radius=8)
+    pygame.draw.rect(screen, "black", panel, 2, border_radius=8)
 
-    bar_width = 250
+    bar_width = 190
     health_fill = int(bar_width * player.health / player.max_health) if player.max_health else 0
     xp_fill = int(bar_width * xp / xp_to_next_level) if xp_to_next_level else 0
 
-    draw_text(screen, font, f"Health: {player.health}/{player.max_health}", "black", panel.x + 20, panel.y + 18)
-    pygame.draw.rect(screen, "darkred", (panel.x + 20, panel.y + 55, bar_width, 18))
-    pygame.draw.rect(screen, "red", (panel.x + 20, panel.y + 55, health_fill, 18))
-    pygame.draw.rect(screen, "black", (panel.x + 20, panel.y + 55, bar_width, 18), 2)
+    hp_text = tiny_font.render(f"HP {player.health}/{player.max_health}", True, "black")
+    screen.blit(hp_text, (panel.x + 12, panel.y + 10))
+    pygame.draw.rect(screen, "darkred", (panel.x + 85, panel.y + 12, bar_width, 12))
+    pygame.draw.rect(screen, "red", (panel.x + 85, panel.y + 12, health_fill, 12))
+    pygame.draw.rect(screen, "black", (panel.x + 85, panel.y + 12, bar_width, 12), 1)
 
-    draw_text(screen, font, f"Level {level}  XP {xp}/{xp_to_next_level}", "black", panel.x + 20, panel.y + 85)
-    pygame.draw.rect(screen, (120, 90, 0), (panel.x + 20, panel.y + 122, bar_width, 18))
-    pygame.draw.rect(screen, "gold", (panel.x + 20, panel.y + 122, xp_fill, 18))
-    pygame.draw.rect(screen, "black", (panel.x + 20, panel.y + 122, bar_width, 18), 2)
+    xp_text = tiny_font.render(f"Lv {level} XP {xp}/{xp_to_next_level}", True, "black")
+    screen.blit(xp_text, (panel.x + 12, panel.y + 36))
+    pygame.draw.rect(screen, (120, 90, 0), (panel.x + 85, panel.y + 39, bar_width, 12))
+    pygame.draw.rect(screen, "gold", (panel.x + 85, panel.y + 39, xp_fill, 12))
+    pygame.draw.rect(screen, "black", (panel.x + 85, panel.y + 39, bar_width, 12), 1)
 
-    draw_text(screen, font, f"Kills: {kills}", "black", panel.x + 20, panel.y + 155)
-    draw_text(screen, font, f"Points: {points}", "black", panel.x + 210, panel.y + 155)
-    draw_text(screen, font, f"Time: {int(game_time)}s", "black", panel.x + 20, panel.y + 195)
-    draw_text(screen, font, f"Wave: {wave_number}", "black", panel.x + 210, panel.y + 195)
-    draw_text(screen, font, f"Bosses defeated: {bosses_defeated}", "black", panel.x + 20, panel.y + 235)
+    lines = [
+        f"Pts {points}   Kills {kills}",
+        f"Time {int(game_time)}s   Wave {wave_number}",
+        f"Bosses {bosses_defeated}",
+    ]
+    for i, line in enumerate(lines):
+        text = tiny_font.render(line, True, "black")
+        screen.blit(text, (panel.x + 12, panel.y + 64 + i * 20))
 
-    shot_text = "Shot Ready" if player.can_shoot() else f"Cooldown: {player.shot_timer:.1f}s"
+    shot_text = "Ready" if player.can_shoot() else f"CD {player.shot_timer:.1f}s"
     shot_color = "green" if player.can_shoot() else "red"
-    draw_text(screen, font, shot_text, shot_color, panel.x + 20, panel.y + 275)
-    draw_text(screen, font, "TAB: Shop", "black", WIDTH - 180, 20)
+    text = tiny_font.render(f"Shot: {shot_text} | TAB shop | I stats", True, shot_color)
+    screen.blit(text, (panel.x + 12, panel.y + 126))
+
+
+def draw_stats_menu(screen, font, small_font, tiny_font, player, game):
+    panel = pygame.Rect(WIDTH // 2 - 240, 80, 480, 520)
+    pygame.draw.rect(screen, (40, 40, 40), panel, border_radius=12)
+    pygame.draw.rect(screen, "black", panel, 4, border_radius=12)
+
+    title = font.render("Stats / Weapons", True, "white")
+    screen.blit(title, (panel.x + 24, panel.y + 20))
+    hint = tiny_font.render("Press I to close. Game is paused while this is open.", True, "lightgray")
+    screen.blit(hint, (panel.x + 24, panel.y + 60))
+
+    summary = [
+        ("Level", str(game["level"])),
+        ("XP", f"{game['xp']}/{game['xp_to_next_level']}"),
+        ("Points", str(game["points"])),
+        ("Kills", str(game["kills"])),
+        ("Wave", str(game["wave_number"])),
+        ("Bosses defeated", str(game["bosses_defeated"])),
+    ]
+    rows = summary + player_stat_rows(player)
+    for i, (name, value) in enumerate(rows):
+        col = i // 11
+        row = i % 11
+        x = panel.x + 28 + col * 225
+        y = panel.y + 105 + row * 34
+        pygame.draw.rect(screen, (72, 72, 72), (x - 8, y - 4, 205, 28), border_radius=5)
+        name_text = tiny_font.render(name, True, "white")
+        value_text = tiny_font.render(value, True, "yellow")
+        screen.blit(name_text, (x, y))
+        screen.blit(value_text, (x + 195 - value_text.get_width(), y))
 
 
 def draw_level_up(screen, font, title_font, game):
@@ -821,6 +844,7 @@ def main():
     shop = Shop()
     game = reset_game(shop)
     state = "menu"
+    stats_open = False
     running = True
     dt = 0
 
@@ -837,6 +861,7 @@ def main():
                 elif state == "menu" and event.key == pygame.K_RETURN:
                     game = reset_game(shop)
                     shop.open = False
+                    stats_open = False
                     state = "playing"
                 elif state == "level_up":
                     if event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
@@ -847,19 +872,24 @@ def main():
                     if event.key == pygame.K_r:
                         game = reset_game(shop)
                         shop.open = False
+                        stats_open = False
                         state = "playing"
                     elif event.key == pygame.K_m:
                         state = "menu"
                 elif state == "playing":
                     if event.key == pygame.K_TAB:
                         shop.open = not shop.open
+                        stats_open = False if shop.open else stats_open
+                    elif event.key == pygame.K_i:
+                        stats_open = not stats_open
+                        shop.open = False if stats_open else shop.open
                     elif shop.open:
                         game["points"] = shop.try_buy(event.key, player, game["points"])
 
             if event.type == pygame.MOUSEBUTTONDOWN and state == "playing":
                 if event.button == 1 and shop.open:
                     game["points"] = shop.try_buy_at_pos(event.pos, player, game["points"])
-                elif event.button == 1:
+                elif event.button == 1 and not stats_open:
                     mx, my = pygame.mouse.get_pos()
                     game["bullets"].extend(player.shoot(mx, my))
 
@@ -868,7 +898,7 @@ def main():
         elif state in ("playing", "level_up"):
             screen.fill("white")
 
-            if state == "playing" and not shop.open:
+            if state == "playing" and not shop.open and not stats_open:
                 keys = pygame.key.get_pressed()
                 player.update(keys, dt)
                 if pygame.mouse.get_pressed(num_buttons=3)[0]:
@@ -939,7 +969,8 @@ def main():
                 enemy.draw(screen, font)
             draw_hud(
                 screen,
-                font,
+                small_font,
+                tiny_font,
                 player,
                 game["kills"],
                 game["points"],
@@ -953,6 +984,8 @@ def main():
 
             if shop.open:
                 shop.draw(screen, font, small_font, tiny_font, player, game["points"])
+            if stats_open and state == "playing":
+                draw_stats_menu(screen, font, small_font, tiny_font, player, game)
             if state == "level_up":
                 draw_level_up(screen, font, title_font, game)
         elif state == "game_over":
