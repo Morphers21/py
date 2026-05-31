@@ -17,6 +17,9 @@ BULLET_START_RADIUS = 8
 BULLET_START_DAMAGE = 1
 BULLET_START_COOLDOWN = 0.35
 BULLET_START_SPREAD = 10
+MIN_SHOT_COOLDOWN = 0.18
+MAX_BULLET_SPEED = 1200
+MAX_BULLET_RADIUS = 28
 
 ENEMY_SIZE = 40
 ENEMY_SPEED = 120
@@ -293,16 +296,17 @@ class Bullet:
 
     def draw(self, screen):
         center = (int(self.pos.x), int(self.pos.y))
+        draw_radius = max(1, int(round(self.radius)))
         if self.weapon_type == "laser":
             direction = self.vel.normalize() if self.vel.length_squared() else pygame.Vector2(1, 0)
             start = self.pos - direction * 14
             end = self.pos + direction * 14
-            pygame.draw.line(screen, self.color, start, end, 5)
+            pygame.draw.line(screen, self.color, start, end, draw_radius)
         elif self.weapon_type == "rocket":
-            pygame.draw.circle(screen, self.color, center, self.radius)
-            pygame.draw.circle(screen, "yellow", center, max(3, self.radius // 2))
+            pygame.draw.circle(screen, self.color, center, draw_radius)
+            pygame.draw.circle(screen, "yellow", center, max(3, draw_radius // 2))
         else:
-            pygame.draw.circle(screen, self.color, center, self.radius)
+            pygame.draw.circle(screen, self.color, center, draw_radius)
 
     def is_off_screen(self):
         return (
@@ -348,8 +352,8 @@ class Shop:
             self.item(pygame.K_3, "3) Bullet Damage +1", 10, 4, self.buy_damage),
             self.item(pygame.K_4, "4) Faster Fire Rate", 12, 5, self.buy_fire_rate),
             self.item(pygame.K_5, "5) Move Speed +30", 8, 3, self.buy_speed),
-            self.item(pygame.K_6, "6) Bullet Speed +75", 7, 3, self.buy_bullet_speed),
-            self.item(pygame.K_7, "7) Bullet Size +1", 9, 4, self.buy_bullet_size),
+            self.item(pygame.K_6, "6) Bullet Speed +40", 7, 3, self.buy_bullet_speed),
+            self.item(pygame.K_7, "7) Bullet Size +0.5", 9, 4, self.buy_bullet_size),
             self.item(pygame.K_8, "8) Extra Shot", 15, 8, self.buy_extra_shot),
             self.item(pygame.K_9, "9) Kill Point Bonus +1", 18, 9, self.buy_point_bonus),
             self.item(pygame.K_0, "0) Health Regen +0.2/s", 20, 10, self.buy_regen),
@@ -412,16 +416,16 @@ class Shop:
         player.damage += 1
 
     def buy_fire_rate(self, player):
-        player.shot_cooldown *= 0.9
+        player.shot_cooldown = max(MIN_SHOT_COOLDOWN, player.shot_cooldown * 0.95)
 
     def buy_speed(self, player):
         player.speed += 30
 
     def buy_bullet_speed(self, player):
-        player.bullet_speed += 75
+        player.bullet_speed = min(MAX_BULLET_SPEED, player.bullet_speed + 40)
 
     def buy_bullet_size(self, player):
-        player.bullet_radius += 1
+        player.bullet_radius = min(MAX_BULLET_RADIUS, player.bullet_radius + 0.5)
 
     def buy_extra_shot(self, player):
         player.bullet_count += 1
@@ -531,7 +535,7 @@ def make_level_cards(player=None):
         },
         {
             "name": "Rapid Card",
-            "description": "Shot cooldown x0.82",
+            "description": "Shot cooldown x0.90",
             "apply": apply_fire_rate_card,
         },
         {
@@ -546,12 +550,12 @@ def make_level_cards(player=None):
         },
         {
             "name": "Velocity Card",
-            "description": "Bullet speed x1.25",
+            "description": "Bullet speed x1.12",
             "apply": apply_bullet_speed_card,
         },
         {
             "name": "Giant Card",
-            "description": "Bullet size x1.25",
+            "description": "Bullet size x1.10",
             "apply": apply_bullet_size_card,
         },
         {
@@ -613,7 +617,7 @@ def apply_damage_card(player):
 
 
 def apply_fire_rate_card(player):
-    player.shot_cooldown *= 0.82
+    player.shot_cooldown = max(MIN_SHOT_COOLDOWN, player.shot_cooldown * 0.9)
 
 
 def apply_speed_card(player):
@@ -626,11 +630,11 @@ def apply_health_card(player):
 
 
 def apply_bullet_speed_card(player):
-    player.bullet_speed = math.ceil(player.bullet_speed * 1.25)
+    player.bullet_speed = min(MAX_BULLET_SPEED, math.ceil(player.bullet_speed * 1.12))
 
 
 def apply_bullet_size_card(player):
-    player.bullet_radius = max(player.bullet_radius + 1, math.ceil(player.bullet_radius * 1.25))
+    player.bullet_radius = min(MAX_BULLET_RADIUS, max(player.bullet_radius + 0.5, player.bullet_radius * 1.1))
 
 
 def apply_xp_card(player):
@@ -732,7 +736,7 @@ def player_stat_rows(player):
         ("Shot cooldown", f"{player.shot_cooldown:.2f}s"),
         ("Move speed", str(player.speed)),
         ("Bullet speed", str(player.bullet_speed)),
-        ("Bullet size", str(player.bullet_radius)),
+        ("Bullet size", f"{player.bullet_radius:.1f}"),
         ("Bullets/shot", str(player.bullet_count)),
         ("Pierce", str(player.bullet_pierce)),
         ("Rocket", f"Lv {player.rocket_level}"),
