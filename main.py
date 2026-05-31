@@ -300,13 +300,42 @@ class Shop:
     def cost(self, item):
         return item["base_cost"] + item["cost_growth"] * item["purchases"]
 
+    def layout(self):
+        panel = pygame.Rect(WIDTH - 465, 45, 440, HEIGHT - 90)
+        list_rect = pygame.Rect(panel.x + 12, panel.y + 76, panel.width - 24, 330)
+        stats_rect = pygame.Rect(
+            panel.x + 12,
+            list_rect.bottom + 12,
+            panel.width - 24,
+            panel.bottom - list_rect.bottom - 24,
+        )
+        return panel, list_rect, stats_rect
+
+    def item_rect(self, index, list_rect):
+        row_height = 31
+        y = list_rect.y + 10 + index * row_height
+        return pygame.Rect(list_rect.x + 8, y - 3, list_rect.width - 16, row_height - 4)
+
+    def buy_item(self, item, player, points):
+        cost = self.cost(item)
+        if points < cost:
+            return points
+
+        item["apply"](player)
+        item["purchases"] += 1
+        return points - cost
+
     def try_buy(self, key, player, points):
         for item in self.items:
-            cost = self.cost(item)
-            if key == item["key"] and points >= cost:
-                item["apply"](player)
-                item["purchases"] += 1
-                return points - cost
+            if key == item["key"]:
+                return self.buy_item(item, player, points)
+        return points
+
+    def try_buy_at_pos(self, pos, player, points):
+        _, list_rect, _ = self.layout()
+        for index, item in enumerate(self.items):
+            if self.item_rect(index, list_rect).collidepoint(pos):
+                return self.buy_item(item, player, points)
         return points
 
     def buy_health(self, player):
@@ -346,7 +375,7 @@ class Shop:
             item["purchases"] = 0
 
     def draw(self, screen, font, small_font, tiny_font, player, points):
-        panel = pygame.Rect(WIDTH - 465, 45, 440, HEIGHT - 90)
+        panel, list_rect, stats_rect = self.layout()
         pygame.draw.rect(screen, (45, 45, 45), panel, border_radius=12)
         pygame.draw.rect(screen, "black", panel, 4, border_radius=12)
 
@@ -354,19 +383,17 @@ class Shop:
         screen.blit(title, (panel.x + 18, panel.y + 14))
         points_text = small_font.render(f"{points} pts", True, "yellow")
         screen.blit(points_text, (panel.right - points_text.get_width() - 18, panel.y + 14))
-        hint = tiny_font.render("TAB close | number keys buy", True, "lightgray")
+        hint = tiny_font.render("TAB close | click or number keys buy", True, "lightgray")
         screen.blit(hint, (panel.x + 18, panel.y + 44))
 
-        list_rect = pygame.Rect(panel.x + 12, panel.y + 76, panel.width - 24, 330)
         pygame.draw.rect(screen, (68, 68, 68), list_rect, border_radius=8)
         pygame.draw.rect(screen, "black", list_rect, 2, border_radius=8)
 
-        row_height = 31
         for i, item in enumerate(self.items):
             cost = self.cost(item)
             affordable = points >= cost
-            y = list_rect.y + 10 + i * row_height
-            row_rect = pygame.Rect(list_rect.x + 8, y - 3, list_rect.width - 16, row_height - 4)
+            row_rect = self.item_rect(i, list_rect)
+            y = row_rect.y + 3
             pygame.draw.rect(screen, (45, 85, 50) if affordable else (55, 55, 55), row_rect, border_radius=5)
 
             label = tiny_font.render(item["label"], True, "white" if affordable else "lightgray")
@@ -374,7 +401,6 @@ class Shop:
             screen.blit(label, (row_rect.x + 8, y))
             screen.blit(meta, (row_rect.right - meta.get_width() - 8, y))
 
-        stats_rect = pygame.Rect(panel.x + 12, list_rect.bottom + 12, panel.width - 24, panel.bottom - list_rect.bottom - 24)
         pygame.draw.rect(screen, (200, 200, 200), stats_rect, border_radius=8)
         pygame.draw.rect(screen, "black", stats_rect, 2, border_radius=8)
         stats_title = tiny_font.render("STATS / WEAPONS", True, "black")
@@ -797,8 +823,10 @@ def main():
                     elif shop.open:
                         game["points"] = shop.try_buy(event.key, player, game["points"])
 
-            if event.type == pygame.MOUSEBUTTONDOWN and state == "playing" and not shop.open:
-                if event.button == 1:
+            if event.type == pygame.MOUSEBUTTONDOWN and state == "playing":
+                if event.button == 1 and shop.open:
+                    game["points"] = shop.try_buy_at_pos(event.pos, player, game["points"])
+                elif event.button == 1:
                     mx, my = pygame.mouse.get_pos()
                     game["bullets"].extend(player.shoot(mx, my))
 
@@ -810,6 +838,9 @@ def main():
             if state == "playing" and not shop.open:
                 keys = pygame.key.get_pressed()
                 player.update(keys, dt)
+                if pygame.mouse.get_pressed(num_buttons=3)[0]:
+                    mx, my = pygame.mouse.get_pos()
+                    game["bullets"].extend(player.shoot(mx, my))
                 game["game_time"] += dt
                 game["damage_cooldown"] = max(0, game["damage_cooldown"] - dt)
 

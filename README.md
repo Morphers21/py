@@ -14,9 +14,9 @@ python main.py
 
 - `ENTER` starts the game from the menu.
 - `WASD` moves the player.
-- Left mouse click shoots toward the cursor.
+- Left mouse click shoots toward the cursor; hold left click to keep firing.
 - `TAB` opens or closes the shop.
-- `1`-`9` and `0` buy repeatable shop upgrades while the shop is open.
+- Click shop upgrades or press `1`-`9` / `0` to buy repeatable upgrades while the shop is open.
 - `1`-`3` picks a level-up card when the card screen appears.
 - `R` restarts after game over.
 - `M` returns to the menu after game over.
