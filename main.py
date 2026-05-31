@@ -321,6 +321,16 @@ class Player:
         screen.blit(sprite, sprite.get_rect(center=(int(self.pos.x), int(self.pos.y))))
 
 
+def rect_hits_obstacles(rect, obstacles):
+    return any(rect.colliderect(obstacle) for obstacle in obstacles)
+
+
+def has_line_of_sight(start, end, obstacles):
+    start_pos = (int(start.x), int(start.y))
+    end_pos = (int(end.x), int(end.y))
+    return not any(obstacle.clipline(start_pos, end_pos) for obstacle in obstacles)
+
+
 class Enemy:
     def __init__(self, x, y, game_time, is_boss=False, wave_number=0, enemy_type="normal"):
         self.is_boss = is_boss
@@ -379,18 +389,49 @@ class Enemy:
             return 2
         return 1
 
+    def move_with_obstacle_avoidance(self, movement, obstacles):
+        if movement.length_squared() == 0:
+            return
+
+        original_pos = self.pos.copy()
+        attempts = [
+            movement,
+            pygame.Vector2(movement.x, 0),
+            pygame.Vector2(0, movement.y),
+        ]
+        perpendicular = pygame.Vector2(-movement.y, movement.x)
+        if perpendicular.length_squared() > 0:
+            perpendicular = perpendicular.normalize() * movement.length()
+            attempts.extend([perpendicular, -perpendicular])
+
+        for attempt in attempts:
+            self.pos = original_pos + attempt
+            self.rect.center = (int(self.pos.x), int(self.pos.y))
+            if not rect_hits_obstacles(self.rect, obstacles):
+                return
+
+        self.pos = original_pos
+        self.rect.center = (int(self.pos.x), int(self.pos.y))
+
     def update(self, player_pos, dt, enemies, game=None):
+        obstacles = game.get("obstacles", []) if game is not None else []
         to_player = player_pos - self.pos
         distance = to_player.length()
+        can_see_player = has_line_of_sight(self.pos, player_pos, obstacles)
         if distance != 0:
             self.facing = to_player.normalize()
-            should_move = not (self.enemy_type == "ranged" and distance < 360)
+            should_move = not (self.enemy_type == "ranged" and distance < 360 and can_see_player)
             if should_move:
-                self.pos += self.facing * self.speed * dt
+                movement = self.facing * self.speed * dt
+                if obstacles:
+                    self.move_with_obstacle_avoidance(movement, obstacles)
+                else:
+                    self.pos += movement
 
         if self.enemy_type == "ranged" and game is not None:
             self.shoot_timer -= dt
-            if distance < 520 and self.shoot_timer <= 0:
+            can_see_player = has_line_of_sight(self.pos, player_pos, obstacles)
+            if distance < 520 and can_see_player and self.shoot_timer <= 0:
                 angle = math.atan2(self.facing.y, self.facing.x)
                 game["enemy_bullets"].append(
                     Bullet(self.pos.x, self.pos.y, angle, 1, 280, 6, color="purple", weapon_type="enemy")
@@ -406,8 +447,13 @@ class Enemy:
             distance = math.hypot(dx, dy)
             min_distance = self.rect.width / 2 + other.rect.width / 2
             if 0 < distance < min_distance:
+                original_pos = self.pos.copy()
                 self.pos.x += dx / distance * 2
                 self.pos.y += dy / distance * 2
+                self.rect.center = (int(self.pos.x), int(self.pos.y))
+                if obstacles and rect_hits_obstacles(self.rect, obstacles):
+                    self.pos = original_pos
+                    self.rect.center = (int(self.pos.x), int(self.pos.y))
 
         self.pos.x %= WIDTH
         self.pos.y %= HEIGHT
@@ -1378,7 +1424,7 @@ def update_enemy_bullets(game, dt):
     player = game["player"]
     for bullet in game["enemy_bullets"][:]:
         bullet.update(dt)
-        if bullet.is_off_screen():
+        if bullet.is_off_screen() or any(obstacle.collidepoint(bullet.pos) for obstacle in game.get("obstacles", [])):
             game["enemy_bullets"].remove(bullet)
             continue
         if bullet.collides_with(player.rect) and game["damage_cooldown"] <= 0:
