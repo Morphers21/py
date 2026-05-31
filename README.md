@@ -1,7 +1,7 @@
 # Survival Shooter
 
 A simple pygame top-down shooter with scaling infinite enemy waves, recurring
-bosses, shot cooldowns, XP level-ups, stat multiplier cards, and a repeatable points shop.
+bosses, shot cooldowns, XP level-ups, stat multiplier cards, unlockable weapons, and a compact repeatable points shop.
 
 ## Run
 
@@ -22,4 +22,4 @@ python main.py
 - `M` returns to the menu after game over.
 - `Q` quits.
 
-Bosses start at 50 seconds, and infinite waves begin after 60 seconds. Kills give XP; each level needs more XP than the last and offers multiplier cards for stats like damage, fire rate, health, speed, XP gain, and regeneration.
+Bosses start at 50 seconds, and infinite waves begin after 60 seconds. Kills give XP; each level needs more XP than the last and offers multiplier cards for stats like damage, fire rate, health, speed, XP gain, regeneration, piercing bullets, rockets, lasers, scatter shots, and healing on kill.

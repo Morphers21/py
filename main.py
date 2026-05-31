@@ -57,6 +57,10 @@ class Player:
         self.regen_rate = 0
         self.regen_progress = 0
         self.xp_multiplier = 1.0
+        self.bullet_pierce = 0
+        self.rocket_level = 0
+        self.laser_level = 0
+        self.kill_heal = 0
         self.pos = pygame.Vector2(x, y)
         self.rect = pygame.Rect(0, 0, PLAYER_SIZE, PLAYER_SIZE)
         self.rect.center = self.pos
@@ -113,8 +117,42 @@ class Player:
                     self.damage,
                     self.bullet_speed,
                     self.bullet_radius,
+                    pierce=self.bullet_pierce,
+                    color="orange",
+                    weapon_type="bullet",
                 )
             )
+
+        if self.rocket_level > 0:
+            bullets.append(
+                Bullet(
+                    self.pos.x,
+                    self.pos.y,
+                    base_angle,
+                    self.damage * 2 + self.rocket_level * 2,
+                    self.bullet_speed * 0.55,
+                    self.bullet_radius + 5,
+                    color="orangered",
+                    weapon_type="rocket",
+                    splash_radius=70 + self.rocket_level * 12,
+                )
+            )
+
+        if self.laser_level > 0:
+            bullets.append(
+                Bullet(
+                    self.pos.x,
+                    self.pos.y,
+                    base_angle,
+                    max(1, math.ceil(self.damage * 0.75) + self.laser_level),
+                    self.bullet_speed * 1.8,
+                    5,
+                    pierce=2 + self.laser_level,
+                    color="cyan",
+                    weapon_type="laser",
+                )
+            )
+
         return bullets
 
     def draw(self, screen):
@@ -184,17 +222,44 @@ class Enemy:
 
 
 class Bullet:
-    def __init__(self, x, y, angle, damage, speed, radius):
+    def __init__(
+        self,
+        x,
+        y,
+        angle,
+        damage,
+        speed,
+        radius,
+        pierce=0,
+        color="orange",
+        weapon_type="bullet",
+        splash_radius=0,
+    ):
         self.pos = pygame.Vector2(x, y)
         self.damage = damage
         self.radius = radius
+        self.pierce = pierce
+        self.color = color
+        self.weapon_type = weapon_type
+        self.splash_radius = splash_radius
+        self.hit_enemies = set()
         self.vel = pygame.Vector2(math.cos(angle) * speed, math.sin(angle) * speed)
 
     def update(self, dt):
         self.pos += self.vel * dt
 
     def draw(self, screen):
-        pygame.draw.circle(screen, "orange", (int(self.pos.x), int(self.pos.y)), self.radius)
+        center = (int(self.pos.x), int(self.pos.y))
+        if self.weapon_type == "laser":
+            direction = self.vel.normalize() if self.vel.length_squared() else pygame.Vector2(1, 0)
+            start = self.pos - direction * 14
+            end = self.pos + direction * 14
+            pygame.draw.line(screen, self.color, start, end, 5)
+        elif self.weapon_type == "rocket":
+            pygame.draw.circle(screen, self.color, center, self.radius)
+            pygame.draw.circle(screen, "yellow", center, max(3, self.radius // 2))
+        else:
+            pygame.draw.circle(screen, self.color, center, self.radius)
 
     def is_off_screen(self):
         return (
@@ -280,70 +345,65 @@ class Shop:
         for item in self.items:
             item["purchases"] = 0
 
-    def draw(self, screen, font, small_font, player, points):
-        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 175))
-        screen.blit(overlay, (0, 0))
-
-        panel = pygame.Rect(55, 35, WIDTH - 110, HEIGHT - 70)
-        item_panel = pygame.Rect(panel.x + 30, panel.y + 115, 700, panel.height - 150)
-        stat_panel = pygame.Rect(item_panel.right + 25, item_panel.y, 385, item_panel.height)
-
-        pygame.draw.rect(screen, (55, 55, 55), panel, border_radius=12)
+    def draw(self, screen, font, small_font, tiny_font, player, points):
+        panel = pygame.Rect(WIDTH - 465, 45, 440, HEIGHT - 90)
+        pygame.draw.rect(screen, (45, 45, 45), panel, border_radius=12)
         pygame.draw.rect(screen, "black", panel, 4, border_radius=12)
-        pygame.draw.rect(screen, (85, 85, 85), item_panel, border_radius=8)
-        pygame.draw.rect(screen, (185, 185, 185), stat_panel, border_radius=8)
-        pygame.draw.rect(screen, "black", item_panel, 3, border_radius=8)
-        pygame.draw.rect(screen, "black", stat_panel, 3, border_radius=8)
 
-        title = font.render("SHOP", True, "white")
-        screen.blit(title, (panel.x + 30, panel.y + 20))
-        subtitle = small_font.render("Repeat buys allowed. Press TAB to close.", True, "lightgray")
-        screen.blit(subtitle, (panel.x + 30, panel.y + 64))
+        title = small_font.render("SHOP", True, "white")
+        screen.blit(title, (panel.x + 18, panel.y + 14))
+        points_text = small_font.render(f"{points} pts", True, "yellow")
+        screen.blit(points_text, (panel.right - points_text.get_width() - 18, panel.y + 14))
+        hint = tiny_font.render("TAB close | number keys buy", True, "lightgray")
+        screen.blit(hint, (panel.x + 18, panel.y + 44))
 
-        points_text = font.render(f"Points: {points}", True, "yellow")
-        screen.blit(points_text, (panel.right - points_text.get_width() - 35, panel.y + 25))
+        list_rect = pygame.Rect(panel.x + 12, panel.y + 76, panel.width - 24, 330)
+        pygame.draw.rect(screen, (68, 68, 68), list_rect, border_radius=8)
+        pygame.draw.rect(screen, "black", list_rect, 2, border_radius=8)
 
-        item_header = small_font.render("UPGRADES", True, "white")
-        stat_header = small_font.render("CURRENT STATS", True, "black")
-        screen.blit(item_header, (item_panel.x + 18, item_panel.y + 14))
-        screen.blit(stat_header, (stat_panel.x + 18, stat_panel.y + 14))
-
-        row_height = 40
-        row_y = item_panel.y + 50
+        row_height = 31
         for i, item in enumerate(self.items):
             cost = self.cost(item)
             affordable = points >= cost
-            y = row_y + i * row_height
-            row_rect = pygame.Rect(item_panel.x + 12, y - 5, item_panel.width - 24, row_height - 4)
-            pygame.draw.rect(screen, (45, 90, 55) if affordable else (70, 70, 70), row_rect, border_radius=6)
+            y = list_rect.y + 10 + i * row_height
+            row_rect = pygame.Rect(list_rect.x + 8, y - 3, list_rect.width - 16, row_height - 4)
+            pygame.draw.rect(screen, (45, 85, 50) if affordable else (55, 55, 55), row_rect, border_radius=5)
 
-            label = small_font.render(item["label"], True, "white" if affordable else "lightgray")
-            cost_text = small_font.render(f"{cost} pts", True, "yellow" if affordable else "gray")
-            bought_text = small_font.render(f"bought {item['purchases']}", True, "white" if affordable else "gray")
+            label = tiny_font.render(item["label"], True, "white" if affordable else "lightgray")
+            meta = tiny_font.render(f"{cost} pts | x{item['purchases']}", True, "yellow" if affordable else "gray")
+            screen.blit(label, (row_rect.x + 8, y))
+            screen.blit(meta, (row_rect.right - meta.get_width() - 8, y))
 
-            screen.blit(label, (row_rect.x + 10, y))
-            screen.blit(cost_text, (row_rect.right - 190, y))
-            screen.blit(bought_text, (row_rect.right - bought_text.get_width() - 10, y))
+        stats_rect = pygame.Rect(panel.x + 12, list_rect.bottom + 12, panel.width - 24, panel.bottom - list_rect.bottom - 24)
+        pygame.draw.rect(screen, (200, 200, 200), stats_rect, border_radius=8)
+        pygame.draw.rect(screen, "black", stats_rect, 2, border_radius=8)
+        stats_title = tiny_font.render("STATS / WEAPONS", True, "black")
+        screen.blit(stats_title, (stats_rect.x + 12, stats_rect.y + 10))
 
         stats = [
-            ("Health", f"{player.health}/{player.max_health}"),
+            ("HP", f"{player.health}/{player.max_health}"),
             ("Damage", str(player.damage)),
-            ("Shot cooldown", f"{player.shot_cooldown:.2f}s"),
-            ("Move speed", str(player.speed)),
-            ("Bullet speed", str(player.bullet_speed)),
-            ("Bullet size", str(player.bullet_radius)),
-            ("Bullets/shot", str(player.bullet_count)),
-            ("Point bonus", f"+{player.point_bonus}"),
+            ("Cooldown", f"{player.shot_cooldown:.2f}s"),
+            ("Move", str(player.speed)),
+            ("Bullet spd", str(player.bullet_speed)),
+            ("Bullets", str(player.bullet_count)),
+            ("Pierce", str(player.bullet_pierce)),
+            ("Rocket", f"Lv {player.rocket_level}"),
+            ("Laser", f"Lv {player.laser_level}"),
+            ("Heal/kill", f"+{player.kill_heal}"),
+            ("XP", f"x{player.xp_multiplier:.2f}"),
             ("Regen", f"{player.regen_rate:.1f}/s"),
-            ("XP gain", f"x{player.xp_multiplier:.2f}"),
         ]
+        column_width = stats_rect.width // 2
         for i, (name, value) in enumerate(stats):
-            y = stat_panel.y + 55 + i * 40
-            name_text = small_font.render(name, True, "black")
-            value_text = small_font.render(value, True, "black")
-            screen.blit(name_text, (stat_panel.x + 18, y))
-            screen.blit(value_text, (stat_panel.right - value_text.get_width() - 18, y))
+            col = i // 6
+            row = i % 6
+            x = stats_rect.x + 12 + col * column_width
+            y = stats_rect.y + 42 + row * 27
+            name_text = tiny_font.render(name, True, "black")
+            value_text = tiny_font.render(value, True, "black")
+            screen.blit(name_text, (x, y))
+            screen.blit(value_text, (x + column_width - value_text.get_width() - 18, y))
 
 
 def draw_text(screen, font, text, color, x, y):
@@ -442,6 +502,36 @@ def make_level_cards():
             "description": "Health regen x1.5",
             "apply": apply_regen_card,
         },
+        {
+            "name": "Rocket Launcher",
+            "description": "Unlock or boost explosive rockets",
+            "apply": apply_rocket_card,
+        },
+        {
+            "name": "Laser Rifle",
+            "description": "Unlock or boost piercing lasers",
+            "apply": apply_laser_card,
+        },
+        {
+            "name": "Piercing Ammo",
+            "description": "Bullets pierce +1 enemy",
+            "apply": apply_pierce_card,
+        },
+        {
+            "name": "Scatter Weapon",
+            "description": "+2 bullets per shot",
+            "apply": apply_scatter_card,
+        },
+        {
+            "name": "Vampire Card",
+            "description": "Heal +1 on every kill",
+            "apply": apply_vampire_card,
+        },
+        {
+            "name": "Payday Card",
+            "description": "Kill point bonus x1.5",
+            "apply": apply_payday_card,
+        },
     ]
     return random.sample(cards, LEVEL_UP_CARD_COUNT)
 
@@ -489,6 +579,31 @@ def apply_regen_card(player):
     player.regen_rate = max(0.2, player.regen_rate * 1.5)
 
 
+def apply_rocket_card(player):
+    player.rocket_level += 1
+
+
+def apply_laser_card(player):
+    player.laser_level += 1
+
+
+def apply_pierce_card(player):
+    player.bullet_pierce += 1
+
+
+def apply_scatter_card(player):
+    player.bullet_count += 2
+    player.bullet_spread = min(22, player.bullet_spread + 2)
+
+
+def apply_vampire_card(player):
+    player.kill_heal += 1
+
+
+def apply_payday_card(player):
+    player.point_bonus = max(player.point_bonus + 1, math.ceil((player.point_bonus + 1) * 1.5))
+
+
 def reset_game(shop=None):
     if shop is not None:
         shop.reset_purchases()
@@ -513,6 +628,37 @@ def reset_game(shop=None):
         "wave_number": 0,
         "next_boss_time": BOSS_TRIGGER_TIME + BOSS_WAVE_INTERVAL,
     }
+
+
+def defeat_enemy(game, enemy):
+    if enemy not in game["enemies"]:
+        return False
+
+    player = game["player"]
+    game["enemies"].remove(enemy)
+    game["kills"] += 1
+    game["points"] += enemy.points + player.point_bonus
+    if player.kill_heal > 0:
+        player.health = min(player.max_health, player.health + player.kill_heal)
+    if enemy.is_boss:
+        game["bosses_defeated"] += 1
+    return add_xp(game, enemy.xp_reward)
+
+
+def damage_enemy(game, enemy, damage):
+    enemy.health -= damage
+    if enemy.health <= 0:
+        return defeat_enemy(game, enemy)
+    return False
+
+
+def explode_rocket(game, rocket):
+    leveled_up = False
+    for enemy in game["enemies"][:]:
+        distance = rocket.pos.distance_to(enemy.pos)
+        if distance <= rocket.splash_radius + enemy.rect.width / 2:
+            leveled_up = damage_enemy(game, enemy, rocket.damage) or leveled_up
+    return leveled_up
 
 
 def draw_hud(
@@ -610,6 +756,7 @@ def main():
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 36)
     small_font = pygame.font.Font(None, 28)
+    tiny_font = pygame.font.Font(None, 22)
     title_font = pygame.font.Font(None, 72)
 
     shop = Shop()
@@ -673,19 +820,25 @@ def main():
 
                 for bullet in game["bullets"][:]:
                     for enemy in game["enemies"][:]:
+                        enemy_id = id(enemy)
+                        if enemy_id in bullet.hit_enemies:
+                            continue
                         if enemy.rect.collidepoint(bullet.pos):
-                            if bullet in game["bullets"]:
-                                game["bullets"].remove(bullet)
-                            enemy.health -= bullet.damage
-                            if enemy.health <= 0:
-                                game["enemies"].remove(enemy)
-                                game["kills"] += 1
-                                game["points"] += enemy.points + player.point_bonus
-                                if add_xp(game, enemy.xp_reward):
+                            if bullet.weapon_type == "rocket":
+                                if explode_rocket(game, bullet):
                                     shop.open = False
                                     state = "level_up"
-                                if enemy.is_boss:
-                                    game["bosses_defeated"] += 1
+                                if bullet in game["bullets"]:
+                                    game["bullets"].remove(bullet)
+                                break
+
+                            bullet.hit_enemies.add(enemy_id)
+                            if damage_enemy(game, enemy, bullet.damage):
+                                shop.open = False
+                                state = "level_up"
+                            bullet.pierce -= 1
+                            if bullet.pierce < 0 and bullet in game["bullets"]:
+                                game["bullets"].remove(bullet)
                             break
 
                 if state == "playing":
@@ -735,7 +888,7 @@ def main():
             )
 
             if shop.open:
-                shop.draw(screen, font, small_font, player, game["points"])
+                shop.draw(screen, font, small_font, tiny_font, player, game["points"])
             if state == "level_up":
                 draw_level_up(screen, font, title_font, game)
         elif state == "game_over":
