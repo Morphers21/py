@@ -918,6 +918,28 @@ def draw_stats_menu(screen, font, small_font, tiny_font, player, game):
         screen.blit(value_text, (x + 195 - value_text.get_width(), y))
 
 
+
+def wrap_text(text, font, max_width):
+    lines = []
+    current = ""
+    for word in text.split():
+        test = word if not current else f"{current} {word}"
+        if font.size(test)[0] <= max_width:
+            current = test
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
+def draw_centered_text(screen, font, text, color, center_x, y):
+    rendered = font.render(text, True, color)
+    screen.blit(rendered, (center_x - rendered.get_width() // 2, y))
+
+
 def draw_level_up(screen, font, title_font, game):
     overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
     overlay.fill((0, 0, 0, 190))
@@ -935,9 +957,11 @@ def draw_level_up(screen, font, title_font, game):
         rect = pygame.Rect(x, y, card_width, card_height)
         pygame.draw.rect(screen, "navy", rect)
         pygame.draw.rect(screen, "gold", rect, 4)
-        draw_text(screen, font, f"Press {i + 1}", "yellow", x + 95, y + 25)
-        draw_text(screen, font, card["name"], "white", x + 45, y + 85)
-        draw_text(screen, font, card["description"], "white", x + 25, y + 145)
+        draw_centered_text(screen, font, f"Press {i + 1}", "yellow", rect.centerx, y + 25)
+        draw_centered_text(screen, font, card["name"], "white", rect.centerx, y + 85)
+
+        for line_index, line in enumerate(wrap_text(card["description"], font, card_width - 40)):
+            draw_centered_text(screen, font, line, "white", rect.centerx, y + 140 + line_index * 32)
 
     draw_text(screen, font, f"Next level needs {game['xp_to_next_level']} XP", "gray", 465, 555)
 
