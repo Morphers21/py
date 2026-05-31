@@ -221,8 +221,6 @@ class Player:
                 self.health = min(self.max_health, self.health + healing)
                 self.regen_progress -= healing
 
-        if obstacles:
-            self.resolve_obstacle_collision(obstacles)
         self.pos.x %= WIDTH
         self.pos.y %= HEIGHT
         self.rect.center = (int(self.pos.x), int(self.pos.y))
