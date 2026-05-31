@@ -23,4 +23,4 @@ python main.py
 - `M` returns to the menu after game over.
 - `Q` quits.
 
-Bosses start at 50 seconds, and infinite waves begin after 60 seconds. Kills give XP; each level needs more XP than the last and offers multiplier cards for stats like damage, fire rate, health, speed, XP gain, regeneration, piercing bullets, rockets, lasers, scatter shots, and healing on kill.
+Bosses start at 50 seconds, and infinite waves begin after 60 seconds. Kills give XP; each level needs more XP than the last and offers cards for stats and weapons, including damage, fire rate, health, armor, speed, XP gain, regeneration, piercing bullets, rockets, lasers, scatter shots, point bonuses, and scaling fractional healing on kill.

@@ -63,7 +63,9 @@ class Player:
         self.bullet_pierce = 0
         self.rocket_level = 0
         self.laser_level = 0
-        self.kill_heal = 0
+        self.kill_heal = 0.0
+        self.armor = 0
+        self.luck = 0
         self.pos = pygame.Vector2(x, y)
         self.rect = pygame.Rect(0, 0, PLAYER_SIZE, PLAYER_SIZE)
         self.rect.center = self.pos
@@ -590,13 +592,48 @@ def make_level_cards(player=None):
         },
         {
             "name": "Vampire Card",
-            "description": "Heal +1 on every kill",
+            "description": f"Heal/kill +{0.1 + (player.kill_heal if player else 0) * 0.25:.2f}",
             "apply": apply_vampire_card,
         },
         {
             "name": "Payday Card",
             "description": "Kill point bonus x1.5",
             "apply": apply_payday_card,
+        },
+        {
+            "name": "Fortress Card",
+            "description": "Armor +1, max health +1, longer iframes",
+            "apply": apply_armor_card,
+        },
+        {
+            "name": "Second Wind",
+            "description": "Heal 50% and regen +0.1/s",
+            "apply": apply_second_wind_card,
+        },
+        {
+            "name": "Overclock Card",
+            "description": "Damage +1 and cooldown x0.96",
+            "apply": apply_overclock_card,
+        },
+        {
+            "name": "Heavy Ammo",
+            "description": "Damage +2, bullet speed -5%",
+            "apply": apply_heavy_ammo_card,
+        },
+        {
+            "name": "Split Chamber",
+            "description": "+1 bullet and pierce +1",
+            "apply": apply_split_chamber_card,
+        },
+        {
+            "name": "Magnet Card",
+            "description": "XP gain x1.10 and points +1",
+            "apply": apply_magnet_card,
+        },
+        {
+            "name": "Lucky Card",
+            "description": "Luck +1 and point bonus +1",
+            "apply": apply_lucky_card,
         },
     ]
     return random.sample(cards, LEVEL_UP_CARD_COUNT)
@@ -663,11 +700,50 @@ def apply_scatter_card(player):
 
 
 def apply_vampire_card(player):
-    player.kill_heal += 1
+    player.kill_heal += 0.1 + player.kill_heal * 0.25
 
 
 def apply_payday_card(player):
     player.point_bonus = max(player.point_bonus + 1, math.ceil((player.point_bonus + 1) * 1.5))
+
+
+def apply_armor_card(player):
+    player.armor += 1
+    player.max_health += 1
+    player.health = min(player.max_health, player.health + 1)
+    player.hurt_cooldown += 0.05
+
+
+def apply_second_wind_card(player):
+    heal_amount = max(1, math.ceil(player.max_health * 0.5))
+    player.health = min(player.max_health, player.health + heal_amount)
+    player.regen_rate += 0.1
+
+
+def apply_overclock_card(player):
+    player.damage += 1
+    player.shot_cooldown = max(MIN_SHOT_COOLDOWN, player.shot_cooldown * 0.96)
+
+
+def apply_heavy_ammo_card(player):
+    player.damage += 2
+    player.bullet_speed = max(BULLET_START_SPEED * 0.5, player.bullet_speed * 0.95)
+
+
+def apply_split_chamber_card(player):
+    player.bullet_count += 1
+    player.bullet_pierce += 1
+    player.bullet_spread = min(22, player.bullet_spread + 1)
+
+
+def apply_magnet_card(player):
+    player.xp_multiplier *= 1.1
+    player.point_bonus += 1
+
+
+def apply_lucky_card(player):
+    player.luck += 1
+    player.point_bonus += 1
 
 
 def reset_game(shop=None):
@@ -729,9 +805,16 @@ def explode_rocket(game, rocket):
     return leveled_up
 
 
+
+def format_number(value):
+    if isinstance(value, float) and not value.is_integer():
+        return f"{value:.1f}" if value >= 10 else f"{value:.2f}".rstrip("0").rstrip(".")
+    return str(int(value)) if isinstance(value, float) else str(value)
+
+
 def player_stat_rows(player):
     return [
-        ("Health", f"{player.health}/{player.max_health}"),
+        ("Health", f"{format_number(player.health)}/{player.max_health}"),
         ("Damage", str(player.damage)),
         ("Shot cooldown", f"{player.shot_cooldown:.2f}s"),
         ("Move speed", str(player.speed)),
@@ -741,10 +824,12 @@ def player_stat_rows(player):
         ("Pierce", str(player.bullet_pierce)),
         ("Rocket", f"Lv {player.rocket_level}"),
         ("Laser", f"Lv {player.laser_level}"),
-        ("Heal/kill", f"+{player.kill_heal}"),
+        ("Heal/kill", f"+{player.kill_heal:.2f}"),
         ("Point bonus", f"+{player.point_bonus}"),
         ("XP gain", f"x{player.xp_multiplier:.2f}"),
         ("Regen", f"{player.regen_rate:.1f}/s"),
+        ("Armor", str(player.armor)),
+        ("Luck", str(player.luck)),
     ]
 
 
@@ -771,7 +856,7 @@ def draw_hud(
     health_fill = int(health_bar_width * player.health / player.max_health) if player.max_health else 0
     xp_fill = int(xp_bar_width * xp / xp_to_next_level) if xp_to_next_level else 0
 
-    hp_text = tiny_font.render(f"HP {player.health}/{player.max_health}", True, "black")
+    hp_text = tiny_font.render(f"HP {format_number(player.health)}/{player.max_health}", True, "black")
     screen.blit(hp_text, (panel.x + 12, panel.y + 10))
     pygame.draw.rect(screen, "darkred", (panel.x + 85, panel.y + 12, health_bar_width, 12))
     pygame.draw.rect(screen, "red", (panel.x + 85, panel.y + 12, health_fill, 12))
