@@ -766,21 +766,24 @@ def draw_hud(
     pygame.draw.rect(screen, (245, 245, 245), panel, border_radius=8)
     pygame.draw.rect(screen, "black", panel, 2, border_radius=8)
 
-    bar_width = 190
-    health_fill = int(bar_width * player.health / player.max_health) if player.max_health else 0
-    xp_fill = int(bar_width * xp / xp_to_next_level) if xp_to_next_level else 0
+    health_bar_width = 190
+    xp_bar_width = 145
+    health_fill = int(health_bar_width * player.health / player.max_health) if player.max_health else 0
+    xp_fill = int(xp_bar_width * xp / xp_to_next_level) if xp_to_next_level else 0
 
     hp_text = tiny_font.render(f"HP {player.health}/{player.max_health}", True, "black")
     screen.blit(hp_text, (panel.x + 12, panel.y + 10))
-    pygame.draw.rect(screen, "darkred", (panel.x + 85, panel.y + 12, bar_width, 12))
+    pygame.draw.rect(screen, "darkred", (panel.x + 85, panel.y + 12, health_bar_width, 12))
     pygame.draw.rect(screen, "red", (panel.x + 85, panel.y + 12, health_fill, 12))
-    pygame.draw.rect(screen, "black", (panel.x + 85, panel.y + 12, bar_width, 12), 1)
+    pygame.draw.rect(screen, "black", (panel.x + 85, panel.y + 12, health_bar_width, 12), 1)
 
-    xp_text = tiny_font.render(f"Lv {level} XP {xp}/{xp_to_next_level}", True, "black")
-    screen.blit(xp_text, (panel.x + 12, panel.y + 36))
-    pygame.draw.rect(screen, (120, 90, 0), (panel.x + 85, panel.y + 39, bar_width, 12))
-    pygame.draw.rect(screen, "gold", (panel.x + 85, panel.y + 39, xp_fill, 12))
-    pygame.draw.rect(screen, "black", (panel.x + 85, panel.y + 39, bar_width, 12), 1)
+    level_text = tiny_font.render(f"Lv {level}", True, "black")
+    screen.blit(level_text, (panel.x + 12, panel.y + 36))
+    pygame.draw.rect(screen, (120, 90, 0), (panel.x + 65, panel.y + 39, xp_bar_width, 12))
+    pygame.draw.rect(screen, "gold", (panel.x + 65, panel.y + 39, xp_fill, 12))
+    pygame.draw.rect(screen, "black", (panel.x + 65, panel.y + 39, xp_bar_width, 12), 1)
+    xp_value_text = tiny_font.render(f"XP {xp}/{xp_to_next_level}", True, "black")
+    screen.blit(xp_value_text, (panel.x + 220, panel.y + 36))
 
     lines = [
         f"Pts {points}   Kills {kills}",
@@ -793,8 +796,10 @@ def draw_hud(
 
     shot_text = "Ready" if player.can_shoot() else f"CD {player.shot_timer:.1f}s"
     shot_color = "green" if player.can_shoot() else "red"
-    text = tiny_font.render(f"Shot: {shot_text} | TAB shop | I stats", True, shot_color)
-    screen.blit(text, (panel.x + 12, panel.y + 126))
+    shot_surface = tiny_font.render(f"Shot: {shot_text}", True, shot_color)
+    screen.blit(shot_surface, (panel.x + 12, panel.y + 126))
+    hint_surface = tiny_font.render(" | TAB shop | I stats", True, "black")
+    screen.blit(hint_surface, (panel.x + 12 + shot_surface.get_width(), panel.y + 126))
 
 
 def draw_stats_menu(screen, font, small_font, tiny_font, player, game):
