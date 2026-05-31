@@ -236,6 +236,7 @@ class Bullet:
         splash_radius=0,
     ):
         self.pos = pygame.Vector2(x, y)
+        self.prev_pos = self.pos.copy()
         self.damage = damage
         self.radius = radius
         self.pierce = pierce
@@ -246,7 +247,39 @@ class Bullet:
         self.vel = pygame.Vector2(math.cos(angle) * speed, math.sin(angle) * speed)
 
     def update(self, dt):
+        self.prev_pos = self.pos.copy()
         self.pos += self.vel * dt
+
+    def collides_with(self, rect):
+        if self.weapon_type == "laser":
+            direction = self.vel.normalize() if self.vel.length_squared() else pygame.Vector2(1, 0)
+            start = self.pos - direction * 14
+            end = self.pos + direction * 14
+            return self.segment_hits_rect(start, end, rect, self.radius)
+
+        if self.circle_hits_rect(self.pos, rect, self.radius):
+            return True
+
+        # Swept collision catches fast projectiles that pass through an enemy between frames.
+        return self.segment_hits_rect(self.prev_pos, self.pos, rect, self.radius)
+
+    @staticmethod
+    def circle_hits_rect(center, rect, radius):
+        closest_x = max(rect.left, min(center.x, rect.right))
+        closest_y = max(rect.top, min(center.y, rect.bottom))
+        dx = center.x - closest_x
+        dy = center.y - closest_y
+        return dx * dx + dy * dy <= radius * radius
+
+    @staticmethod
+    def segment_hits_rect(start, end, rect, radius):
+        inflated = rect.inflate(radius * 2, radius * 2)
+        return bool(
+            inflated.clipline(
+                (int(start.x), int(start.y)),
+                (int(end.x), int(end.y)),
+            )
+        )
 
     def draw(self, screen):
         center = (int(self.pos.x), int(self.pos.y))
@@ -854,7 +887,7 @@ def main():
                         enemy_id = id(enemy)
                         if enemy_id in bullet.hit_enemies:
                             continue
-                        if enemy.rect.collidepoint(bullet.pos):
+                        if bullet.collides_with(enemy.rect):
                             if bullet.weapon_type == "rocket":
                                 if explode_rocket(game, bullet):
                                     shop.open = False
