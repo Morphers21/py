@@ -331,6 +331,60 @@ def has_line_of_sight(start, end, obstacles):
     return not any(obstacle.clipline(start_pos, end_pos) for obstacle in obstacles)
 
 
+def first_blocking_obstacle(start, end, obstacles):
+    start_pos = (int(start.x), int(start.y))
+    end_pos = (int(end.x), int(end.y))
+    for obstacle in obstacles:
+        if obstacle.clipline(start_pos, end_pos):
+            return obstacle
+    return None
+
+
+def obstacle_corner_waypoint(start, target, obstacle, padding):
+    top_y = obstacle.top - padding
+    bottom_y = obstacle.bottom + padding
+    left_x = obstacle.left - padding
+    right_x = obstacle.right + padding
+
+    # If start and target are on opposite sides, commit to a far-side corner so
+    # enemies actually walk around the wall instead of camping on the near edge.
+    if start.x < obstacle.left and target.x > obstacle.right:
+        x = right_x
+        top_score = abs(start.y - top_y) + abs(target.y - top_y)
+        bottom_score = abs(start.y - bottom_y) + abs(target.y - bottom_y)
+        y = top_y if top_score <= bottom_score else bottom_y
+        return pygame.Vector2(min(WIDTH - 20, max(20, x)), min(HEIGHT - 20, max(20, y)))
+    if start.x > obstacle.right and target.x < obstacle.left:
+        x = left_x
+        top_score = abs(start.y - top_y) + abs(target.y - top_y)
+        bottom_score = abs(start.y - bottom_y) + abs(target.y - bottom_y)
+        y = top_y if top_score <= bottom_score else bottom_y
+        return pygame.Vector2(min(WIDTH - 20, max(20, x)), min(HEIGHT - 20, max(20, y)))
+    if start.y < obstacle.top and target.y > obstacle.bottom:
+        y = bottom_y
+        left_score = abs(start.x - left_x) + abs(target.x - left_x)
+        right_score = abs(start.x - right_x) + abs(target.x - right_x)
+        x = left_x if left_score <= right_score else right_x
+        return pygame.Vector2(min(WIDTH - 20, max(20, x)), min(HEIGHT - 20, max(20, y)))
+    if start.y > obstacle.bottom and target.y < obstacle.top:
+        y = top_y
+        left_score = abs(start.x - left_x) + abs(target.x - left_x)
+        right_score = abs(start.x - right_x) + abs(target.x - right_x)
+        x = left_x if left_score <= right_score else right_x
+        return pygame.Vector2(min(WIDTH - 20, max(20, x)), min(HEIGHT - 20, max(20, y)))
+
+    corners = [
+        pygame.Vector2(left_x, top_y),
+        pygame.Vector2(left_x, bottom_y),
+        pygame.Vector2(right_x, top_y),
+        pygame.Vector2(right_x, bottom_y),
+    ]
+    valid = [corner for corner in corners if 20 <= corner.x <= WIDTH - 20 and 20 <= corner.y <= HEIGHT - 20]
+    if not valid:
+        valid = corners
+    return min(valid, key=lambda corner: start.distance_to(corner) + corner.distance_to(target))
+
+
 class Enemy:
     def __init__(self, x, y, game_time, is_boss=False, wave_number=0, enemy_type="normal"):
         self.is_boss = is_boss
@@ -389,28 +443,51 @@ class Enemy:
             return 2
         return 1
 
-    def move_with_obstacle_avoidance(self, movement, obstacles):
+    def move_with_obstacle_avoidance(self, movement, obstacles, target_pos):
         if movement.length_squared() == 0:
             return
 
         original_pos = self.pos.copy()
-        attempts = [
-            movement,
-            pygame.Vector2(movement.x, 0),
-            pygame.Vector2(0, movement.y),
-        ]
-        perpendicular = pygame.Vector2(-movement.y, movement.x)
-        if perpendicular.length_squared() > 0:
-            perpendicular = perpendicular.normalize() * movement.length()
-            attempts.extend([perpendicular, -perpendicular])
+        step_length = movement.length()
+        base_direction = movement.normalize()
+        candidates = []
 
-        for attempt in attempts:
-            self.pos = original_pos + attempt
+        # Try a fan of directions around the desired movement. This lets enemies slide
+        # around wall corners instead of getting pinned against the obstacle face.
+        for angle in (0, 20, -20, 40, -40, 65, -65, 90, -90, 120, -120, 150, -150, 180):
+            candidates.append(base_direction.rotate(angle) * step_length)
+
+        candidates.extend(
+            [
+                pygame.Vector2(movement.x, 0),
+                pygame.Vector2(0, movement.y),
+                pygame.Vector2(-movement.y, movement.x).normalize() * step_length if movement.length_squared() else pygame.Vector2(),
+                pygame.Vector2(movement.y, -movement.x).normalize() * step_length if movement.length_squared() else pygame.Vector2(),
+            ]
+        )
+
+        best_pos = None
+        best_score = None
+        for candidate in candidates:
+            if candidate.length_squared() == 0:
+                continue
+            candidate_pos = original_pos + candidate
+            self.pos = candidate_pos
             self.rect.center = (int(self.pos.x), int(self.pos.y))
-            if not rect_hits_obstacles(self.rect, obstacles):
-                return
+            if rect_hits_obstacles(self.rect, obstacles):
+                continue
 
-        self.pos = original_pos
+            # Prefer moves that get closer to the target, with a tiny penalty for
+            # sharp detours so direct paths win when they are available.
+            score = candidate_pos.distance_to(target_pos) + candidate.angle_to(base_direction) ** 2 * 0.002
+            if best_score is None or score < best_score:
+                best_score = score
+                best_pos = candidate_pos
+
+        if best_pos is not None:
+            self.pos = best_pos
+        else:
+            self.pos = original_pos
         self.rect.center = (int(self.pos.x), int(self.pos.y))
 
     def update(self, player_pos, dt, enemies, game=None):
@@ -418,20 +495,26 @@ class Enemy:
         to_player = player_pos - self.pos
         distance = to_player.length()
         can_see_player = has_line_of_sight(self.pos, player_pos, obstacles)
+        shot_can_see_player = can_see_player
         if distance != 0:
-            self.facing = to_player.normalize()
-            should_move = not (self.enemy_type == "ranged" and distance < 360 and can_see_player)
-            if should_move:
-                movement = self.facing * self.speed * dt
-                if obstacles:
-                    self.move_with_obstacle_avoidance(movement, obstacles)
-                else:
-                    self.pos += movement
+            move_target = player_pos
+            blocking_obstacle = None if can_see_player else first_blocking_obstacle(self.pos, player_pos, obstacles)
+            if blocking_obstacle is not None:
+                move_target = obstacle_corner_waypoint(self.pos, player_pos, blocking_obstacle, self.rect.width / 2 + 18)
+            desired = move_target - self.pos
+            if desired.length_squared() > 0:
+                self.facing = to_player.normalize()
+                should_move = not (self.enemy_type == "ranged" and distance < 360 and can_see_player)
+                if should_move:
+                    movement = desired.normalize() * self.speed * dt
+                    if obstacles:
+                        self.move_with_obstacle_avoidance(movement, obstacles, move_target)
+                    else:
+                        self.pos += movement
 
         if self.enemy_type == "ranged" and game is not None:
             self.shoot_timer -= dt
-            can_see_player = has_line_of_sight(self.pos, player_pos, obstacles)
-            if distance < 520 and can_see_player and self.shoot_timer <= 0:
+            if distance < 520 and shot_can_see_player and self.shoot_timer <= 0:
                 angle = math.atan2(self.facing.y, self.facing.x)
                 game["enemy_bullets"].append(
                     Bullet(self.pos.x, self.pos.y, angle, 1, 280, 6, color="purple", weapon_type="enemy")
