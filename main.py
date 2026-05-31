@@ -44,6 +44,108 @@ START_XP_REQUIREMENT = 6
 XP_REQUIREMENT_MULTIPLIER = 1.45
 LEVEL_UP_CARD_COUNT = 3
 META_FILE = Path("survival_shooter_scores.json")
+SPRITE_CACHE = {}
+
+
+def make_player_sprite(size=40):
+    key = ("player", size)
+    if key in SPRITE_CACHE:
+        return SPRITE_CACHE[key]
+
+    surface = pygame.Surface((size, size), pygame.SRCALPHA)
+    scale = size / 40
+    pygame.draw.circle(surface, (35, 90, 230), (int(20 * scale), int(20 * scale)), int(17 * scale))
+    pygame.draw.circle(surface, (110, 190, 255), (int(20 * scale), int(15 * scale)), int(10 * scale))
+    pygame.draw.rect(surface, (15, 35, 120), (int(14 * scale), int(22 * scale), int(12 * scale), int(12 * scale)))
+    pygame.draw.polygon(
+        surface,
+        (230, 240, 255),
+        [
+            (int(20 * scale), int(4 * scale)),
+            (int(27 * scale), int(17 * scale)),
+            (int(20 * scale), int(14 * scale)),
+            (int(13 * scale), int(17 * scale)),
+        ],
+    )
+    pygame.draw.circle(surface, (5, 10, 45), (int(16 * scale), int(15 * scale)), max(1, int(2 * scale)))
+    pygame.draw.circle(surface, (5, 10, 45), (int(24 * scale), int(15 * scale)), max(1, int(2 * scale)))
+    pygame.draw.circle(surface, (255, 255, 255), (int(14 * scale), int(8 * scale)), max(1, int(3 * scale)))
+    SPRITE_CACHE[key] = surface
+    return surface
+
+
+def make_enemy_sprite(enemy_type, size):
+    key = ("enemy", enemy_type, size)
+    if key in SPRITE_CACHE:
+        return SPRITE_CACHE[key]
+
+    surface = pygame.Surface((size, size), pygame.SRCALPHA)
+    scale = size / 40
+    center = (size // 2, size // 2)
+    radius = max(6, int(size * 0.42))
+    palette = {
+        "normal": ((205, 40, 35), (95, 0, 0)),
+        "boss": ((120, 45, 180), (45, 0, 75)),
+        "swarm": ((255, 105, 170), (120, 15, 80)),
+        "ranged": ((240, 145, 35), (120, 55, 0)),
+        "shield": ((95, 115, 220), (25, 35, 110)),
+        "splitter": ((155, 25, 25), (65, 0, 0)),
+    }
+    body, outline = palette.get(enemy_type, palette["normal"])
+
+    if enemy_type == "swarm":
+        pygame.draw.polygon(
+            surface,
+            outline,
+            [(center[0], int(3 * scale)), (size - int(4 * scale), size - int(5 * scale)), (int(4 * scale), size - int(5 * scale))],
+        )
+        pygame.draw.polygon(
+            surface,
+            body,
+            [(center[0], int(7 * scale)), (size - int(9 * scale), size - int(8 * scale)), (int(9 * scale), size - int(8 * scale))],
+        )
+    elif enemy_type == "shield":
+        pygame.draw.circle(surface, outline, center, radius)
+        pygame.draw.circle(surface, body, center, max(4, radius - int(4 * scale)))
+        pygame.draw.arc(surface, (180, 230, 255), (int(5 * scale), int(4 * scale), size - int(10 * scale), size - int(8 * scale)), 4.0, 5.9, max(2, int(4 * scale)))
+    elif enemy_type == "ranged":
+        pygame.draw.circle(surface, outline, center, radius)
+        pygame.draw.circle(surface, body, center, max(4, radius - int(4 * scale)))
+        pygame.draw.rect(surface, (80, 35, 0), (center[0], center[1] - int(4 * scale), int(16 * scale), int(8 * scale)))
+    elif enemy_type == "splitter":
+        pygame.draw.circle(surface, outline, center, radius)
+        pygame.draw.circle(surface, body, center, max(4, radius - int(5 * scale)))
+        pygame.draw.line(surface, (255, 120, 120), (int(10 * scale), int(13 * scale)), (size - int(10 * scale), size - int(27 * scale)), max(2, int(3 * scale)))
+        pygame.draw.line(surface, (255, 120, 120), (int(13 * scale), size - int(10 * scale)), (size - int(9 * scale), int(14 * scale)), max(2, int(3 * scale)))
+    elif enemy_type == "boss":
+        pygame.draw.circle(surface, outline, center, radius)
+        pygame.draw.circle(surface, body, center, max(4, radius - int(7 * scale)))
+        for angle in range(0, 360, 45):
+            direction = pygame.Vector2(1, 0).rotate(angle)
+            start = pygame.Vector2(center) + direction * radius * 0.7
+            end = pygame.Vector2(center) + direction * radius * 1.05
+            pygame.draw.line(surface, (210, 130, 255), start, end, max(2, int(3 * scale)))
+    else:
+        pygame.draw.circle(surface, outline, center, radius)
+        pygame.draw.circle(surface, body, center, max(4, radius - int(4 * scale)))
+        pygame.draw.polygon(
+            surface,
+            (255, 190, 190),
+            [(int(14 * scale), int(13 * scale)), (int(19 * scale), int(18 * scale)), (int(10 * scale), int(18 * scale))],
+        )
+        pygame.draw.polygon(
+            surface,
+            (255, 190, 190),
+            [(size - int(14 * scale), int(13 * scale)), (size - int(10 * scale), int(18 * scale)), (size - int(19 * scale), int(18 * scale))],
+        )
+
+    eye_y = int(size * 0.45)
+    pygame.draw.circle(surface, (20, 0, 0), (int(size * 0.38), eye_y), max(1, int(size * 0.06)))
+    pygame.draw.circle(surface, (20, 0, 0), (int(size * 0.62), eye_y), max(1, int(size * 0.06)))
+    pygame.draw.circle(surface, (255, 255, 255), (int(size * 0.32), int(size * 0.25)), max(1, int(size * 0.05)))
+    SPRITE_CACHE[key] = surface
+    return surface
+
 
 
 class Player:
@@ -215,7 +317,8 @@ class Player:
         )
 
     def draw(self, screen):
-        pygame.draw.circle(screen, "blue", (int(self.pos.x), int(self.pos.y)), 20)
+        sprite = make_player_sprite(PLAYER_SIZE)
+        screen.blit(sprite, sprite.get_rect(center=(int(self.pos.x), int(self.pos.y))))
 
 
 class Enemy:
@@ -319,18 +422,12 @@ class Enemy:
         return self.facing.dot(incoming_side.normalize()) > 0.25
 
     def draw(self, screen, font):
-        colors = {
-            "boss": "purple",
-            "swarm": "pink",
-            "ranged": "darkorange",
-            "shield": "slateblue",
-            "splitter": "darkred",
-        }
-        color = colors.get(self.enemy_type, "red")
-        pygame.draw.rect(screen, color, self.rect)
+        sprite = make_enemy_sprite(self.enemy_type, self.rect.width)
+        screen.blit(sprite, sprite.get_rect(center=(int(self.pos.x), int(self.pos.y))))
         if self.enemy_type == "shield":
             front = self.pos + self.facing * (self.rect.width / 2)
             pygame.draw.circle(screen, "lightblue", (int(front.x), int(front.y)), 6)
+            pygame.draw.circle(screen, "black", (int(front.x), int(front.y)), 6, 1)
         if self.flash_timer > 0:
             flash = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
             flash.fill((255, 255, 255, 150))
