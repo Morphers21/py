@@ -17,6 +17,7 @@ python main.py
 - Left mouse click shoots toward the cursor; hold left click to keep firing.
 - `TAB` opens or closes the compact shop.
 - `I` opens or closes the stats/weapons menu.
+- `SPACE` dashes/dodges with a short burst of invincibility.
 - `E` drops a mine after you unlock mine cards.
 - Hold and release left click for a charged shot.
 - Click shop upgrades or press `1`-`9` / `0` to buy repeatable upgrades while the shop is open.

@@ -44,6 +44,10 @@ START_XP_REQUIREMENT = 6
 XP_REQUIREMENT_MULTIPLIER = 1.45
 LEVEL_UP_CARD_COUNT = 3
 META_FILE = Path("survival_shooter_scores.json")
+DASH_DURATION = 0.18
+DASH_INVINCIBILITY = 0.3
+DASH_COOLDOWN = 1.0
+DASH_SPEED = 850
 SPRITE_CACHE = {}
 
 
@@ -177,6 +181,11 @@ class Player:
         self.charge_level = 1
         self.curse_berserker = False
         self.railgun_level = 0
+        self.dash_timer = 0
+        self.dash_cooldown = 0
+        self.invincible_timer = 0
+        self.dash_direction = pygame.Vector2(1, 0)
+        self.last_move_direction = pygame.Vector2(1, 0)
         self.pos = pygame.Vector2(x, y)
         self.rect = pygame.Rect(0, 0, PLAYER_SIZE, PLAYER_SIZE)
         self.rect.center = self.pos
@@ -194,7 +203,16 @@ class Player:
 
         if direction.length_squared() > 0:
             direction = direction.normalize()
+            self.last_move_direction = direction
+
+        if self.dash_timer > 0:
+            self.pos += self.dash_direction * DASH_SPEED * dt
+            self.dash_timer = max(0, self.dash_timer - dt)
+        elif direction.length_squared() > 0:
             self.pos += direction * self.speed * dt
+
+        self.dash_cooldown = max(0, self.dash_cooldown - dt)
+        self.invincible_timer = max(0, self.invincible_timer - dt)
 
         if self.regen_rate > 0 and self.health < self.max_health:
             self.regen_progress += self.regen_rate * dt
@@ -203,10 +221,24 @@ class Player:
                 self.health = min(self.max_health, self.health + healing)
                 self.regen_progress -= healing
 
+        if obstacles:
+            self.resolve_obstacle_collision(obstacles)
         self.pos.x %= WIDTH
         self.pos.y %= HEIGHT
         self.rect.center = (int(self.pos.x), int(self.pos.y))
         self.shot_timer = max(0, self.shot_timer - dt)
+
+
+    def dash(self):
+        if self.dash_cooldown > 0:
+            return False
+        self.dash_direction = self.last_move_direction.copy()
+        if self.dash_direction.length_squared() == 0:
+            self.dash_direction = pygame.Vector2(1, 0)
+        self.dash_timer = DASH_DURATION
+        self.dash_cooldown = DASH_COOLDOWN
+        self.invincible_timer = DASH_INVINCIBILITY
+        return True
 
     def can_shoot(self):
         return self.shot_timer <= 0
@@ -319,6 +351,8 @@ class Player:
     def draw(self, screen):
         sprite = make_player_sprite(PLAYER_SIZE)
         screen.blit(sprite, sprite.get_rect(center=(int(self.pos.x), int(self.pos.y))))
+        if self.invincible_timer > 0:
+            pygame.draw.circle(screen, "white", (int(self.pos.x), int(self.pos.y)), 24, 2)
 
 
 def rect_hits_obstacles(rect, obstacles):
@@ -386,8 +420,9 @@ def obstacle_corner_waypoint(start, target, obstacle, padding):
 
 
 class Enemy:
-    def __init__(self, x, y, game_time, is_boss=False, wave_number=0, enemy_type="normal"):
+    def __init__(self, x, y, game_time, is_boss=False, wave_number=0, enemy_type="normal", is_elite=False):
         self.is_boss = is_boss
+        self.is_elite = is_elite and not is_boss
         self.enemy_type = "boss" if is_boss else enemy_type
         size = BOSS_SIZE if is_boss else ENEMY_SIZE
         if self.enemy_type == "swarm":
@@ -432,6 +467,11 @@ class Enemy:
             self.health = normal_health
             self.points = max(1, normal_health // 2)
             self.xp_reward = max(1, normal_health)
+        if self.is_elite:
+            self.health = math.ceil(self.health * 2.5)
+            self.speed *= 1.2
+            self.points *= 3
+            self.xp_reward *= 2
 
     @staticmethod
     def normal_enemy_health(game_time, wave_number=0):
@@ -489,6 +529,25 @@ class Enemy:
         else:
             self.pos = original_pos
         self.rect.center = (int(self.pos.x), int(self.pos.y))
+
+    def resolve_obstacle_collision(self, obstacles):
+        for obstacle in obstacles:
+            if not self.rect.colliderect(obstacle):
+                continue
+            overlap_left = self.rect.right - obstacle.left
+            overlap_right = obstacle.right - self.rect.left
+            overlap_top = self.rect.bottom - obstacle.top
+            overlap_bottom = obstacle.bottom - self.rect.top
+            smallest = min(overlap_left, overlap_right, overlap_top, overlap_bottom)
+            if smallest == overlap_left:
+                self.pos.x -= overlap_left
+            elif smallest == overlap_right:
+                self.pos.x += overlap_right
+            elif smallest == overlap_top:
+                self.pos.y -= overlap_top
+            else:
+                self.pos.y += overlap_bottom
+            self.rect.center = (int(self.pos.x), int(self.pos.y))
 
     def update(self, player_pos, dt, enemies, game=None):
         obstacles = game.get("obstacles", []) if game is not None else []
@@ -553,6 +612,8 @@ class Enemy:
     def draw(self, screen, font):
         sprite = make_enemy_sprite(self.enemy_type, self.rect.width)
         screen.blit(sprite, sprite.get_rect(center=(int(self.pos.x), int(self.pos.y))))
+        if self.is_elite:
+            pygame.draw.circle(screen, "gold", (int(self.pos.x), int(self.pos.y)), self.rect.width // 2 + 4, 3)
         if self.enemy_type == "shield":
             front = self.pos + self.facing * (self.rect.width / 2)
             pygame.draw.circle(screen, "lightblue", (int(front.x), int(front.y)), 6)
@@ -750,6 +811,39 @@ class LightningEffect:
             pygame.draw.lines(screen, "cyan", False, self.points, 3)
 
 
+class Particle:
+    def __init__(self, pos, vel, color, life=0.55, radius=4):
+        self.pos = pygame.Vector2(pos)
+        self.vel = pygame.Vector2(vel)
+        self.color = color
+        self.life = life
+        self.max_life = life
+        self.radius = radius
+
+    def update(self, dt):
+        self.life -= dt
+        self.pos += self.vel * dt
+        self.vel *= 0.92
+
+    def is_done(self):
+        return self.life <= 0
+
+    def draw(self, screen):
+        alpha = max(0, min(255, int(255 * self.life / self.max_life)))
+        size = max(2, int(self.radius * 2))
+        surface = pygame.Surface((size, size), pygame.SRCALPHA)
+        color = pygame.Color(self.color)
+        pygame.draw.circle(surface, (color.r, color.g, color.b, alpha), (size // 2, size // 2), max(1, int(self.radius * self.life / self.max_life)))
+        screen.blit(surface, (self.pos.x - size // 2, self.pos.y - size // 2))
+
+
+def spawn_particles(game, pos, color, count=12, speed=140):
+    for _ in range(count):
+        angle = random.uniform(0, math.tau)
+        velocity = pygame.Vector2(math.cos(angle), math.sin(angle)) * random.uniform(speed * 0.35, speed)
+        game["effects"].append(Particle(pos, velocity, color, random.uniform(0.35, 0.75), random.uniform(2, 5)))
+
+
 class Shop:
     def __init__(self):
         self.open = False
@@ -917,7 +1011,7 @@ def draw_text(screen, font, text, color, x, y):
     screen.blit(rendered, (x, y))
 
 
-def spawn_enemy(game_time, wave_number=0, enemy_type=None):
+def spawn_enemy(game_time, wave_number=0, enemy_type=None, obstacles=None):
     edge = random.choice(("top", "bottom", "left", "right"))
     if edge == "top":
         x, y = random.randint(0, WIDTH), 0
@@ -938,7 +1032,23 @@ def spawn_enemy(game_time, wave_number=0, enemy_type=None):
             enemy_type = "splitter"
         else:
             enemy_type = "normal"
-    return Enemy(x, y, game_time, wave_number=wave_number, enemy_type=enemy_type)
+    is_elite = wave_number >= 4 and random.random() < min(0.18, 0.04 + wave_number * 0.01)
+    enemy = Enemy(x, y, game_time, wave_number=wave_number, enemy_type=enemy_type, is_elite=is_elite)
+    if obstacles:
+        for _ in range(20):
+            if not rect_hits_obstacles(enemy.rect, obstacles):
+                break
+            edge = random.choice(("top", "bottom", "left", "right"))
+            if edge == "top":
+                enemy.pos = pygame.Vector2(random.randint(0, WIDTH), 0)
+            elif edge == "bottom":
+                enemy.pos = pygame.Vector2(random.randint(0, WIDTH), HEIGHT)
+            elif edge == "left":
+                enemy.pos = pygame.Vector2(0, random.randint(0, HEIGHT))
+            else:
+                enemy.pos = pygame.Vector2(WIDTH, random.randint(0, HEIGHT))
+            enemy.rect.center = enemy.pos
+    return enemy
 
 
 def spawn_boss(game_time, wave_number=0):
@@ -949,10 +1059,10 @@ def spawn_infinite_wave(game):
     game["wave_number"] += 1
     count = 6 + game["wave_number"] * 2
     for _ in range(count):
-        game["enemies"].append(spawn_enemy(game["game_time"], game["wave_number"]))
+        game["enemies"].append(spawn_enemy(game["game_time"], game["wave_number"], obstacles=game.get("obstacles")))
     if game["wave_number"] % 3 == 0:
         for _ in range(20):
-            game["enemies"].append(spawn_enemy(game["game_time"], game["wave_number"], "swarm"))
+            game["enemies"].append(spawn_enemy(game["game_time"], game["wave_number"], "swarm", game.get("obstacles")))
     game["kills_per_wave"].setdefault(game["wave_number"], 0)
 
     interval = max(MIN_WAVE_INTERVAL, BASE_WAVE_INTERVAL - game["wave_number"] * 0.25)
@@ -1267,7 +1377,8 @@ def reset_game(shop=None, meta=None):
         player.max_health += prestige // 5
         player.health = player.max_health
         player.speed += min(80, prestige * 2)
-    enemies = [spawn_enemy(0) for _ in range(SPAWN_TIMING[3])]
+    obstacles = make_obstacles()
+    enemies = [spawn_enemy(0, obstacles=obstacles) for _ in range(SPAWN_TIMING[3])]
     return {
         "player": player,
         "bullets": [],
@@ -1276,7 +1387,7 @@ def reset_game(shop=None, meta=None):
         "floating_texts": [],
         "mines": [],
         "xp_orbs": [],
-        "obstacles": make_obstacles(),
+        "obstacles": obstacles,
         "enemies": enemies,
         "spawned": {3},
         "damage_cooldown": 0,
@@ -1317,6 +1428,8 @@ def defeat_enemy(game, enemy):
 
     player = game["player"]
     game["enemies"].remove(enemy)
+    particle_color = "gold" if enemy.is_elite else ("purple" if enemy.is_boss else "red")
+    spawn_particles(game, enemy.pos, particle_color, 28 if enemy.is_boss else 16, 210)
     game["kills"] += 1
     game["kills_per_wave"][game["wave_number"]] = game["kills_per_wave"].get(game["wave_number"], 0) + 1
     if game["game_time"] - game["last_kill_time"] <= 3:
@@ -1419,11 +1532,16 @@ def player_stat_rows(player):
 
 def damage_player(game, amount):
     player = game["player"]
+    if player.invincible_timer > 0:
+        return False
     player.health -= amount
     game["damage_cooldown"] = player.hurt_cooldown
     game["shake_timer"] = 0.25
     game["shake_intensity"] = 6
-    return player.health <= 0
+    if player.health <= 0:
+        spawn_particles(game, player.pos, "dodgerblue", 34, 260)
+        return True
+    return False
 
 
 def drop_mine(game):
@@ -1552,6 +1670,7 @@ def draw_hud(
     game_time,
     wave_number,
     bosses_defeated,
+    streak,
 ):
     panel = pygame.Rect(18, 14, 300, 150)
     pygame.draw.rect(screen, (245, 245, 245), panel, border_radius=8)
@@ -1576,10 +1695,11 @@ def draw_hud(
     xp_value_text = tiny_font.render(f"XP {xp}/{xp_to_next_level}", True, "black")
     screen.blit(xp_value_text, (panel.x + 220, panel.y + 36))
 
+    dash_text = "Ready" if player.dash_cooldown <= 0 else f"Dash {player.dash_cooldown:.1f}s"
     lines = [
         f"Pts {points}   Kills {kills}",
-        f"Time {int(game_time)}s   Wave {wave_number}",
-        f"Bosses {bosses_defeated}",
+        f"Combo {streak}   Bosses {bosses_defeated}",
+        f"Time {int(game_time)}s   Wave {wave_number}   {dash_text}",
     ]
     for i, line in enumerate(lines):
         text = tiny_font.render(line, True, "black")
@@ -1589,7 +1709,7 @@ def draw_hud(
     shot_color = "green" if player.can_shoot() else "red"
     shot_surface = tiny_font.render(f"Shot: {shot_text}", True, shot_color)
     screen.blit(shot_surface, (panel.x + 12, panel.y + 126))
-    hint_surface = tiny_font.render(" | TAB shop | I stats", True, "black")
+    hint_surface = tiny_font.render(" | SPACE dash | TAB shop | I stats", True, "black")
     screen.blit(hint_surface, (panel.x + 12 + shot_surface.get_width(), panel.y + 126))
 
 
@@ -1794,6 +1914,9 @@ def main():
                     elif event.key == pygame.K_i:
                         stats_open = not stats_open
                         shop.open = False if stats_open else shop.open
+                    elif event.key == pygame.K_SPACE and not shop.open and not stats_open:
+                        if player.dash():
+                            spawn_particles(game, player.pos, "white", 10, 220)
                     elif event.key == pygame.K_e and not shop.open and not stats_open:
                         drop_mine(game)
                     elif shop.open:
@@ -1825,7 +1948,11 @@ def main():
                 if player_hits_obstacle(player, game["obstacles"]):
                     player.pos = previous_pos
                     player.rect.center = (int(player.pos.x), int(player.pos.y))
+                pressure_previous_pos = player.pos.copy()
                 update_player_pressure(game, dt)
+                if player_hits_obstacle(player, game["obstacles"]):
+                    player.pos = pressure_previous_pos
+                    player.rect.center = (int(player.pos.x), int(player.pos.y))
                 if player.health <= 0:
                     state = "game_over"
                 if pygame.mouse.get_pressed(num_buttons=3)[0] and state == "playing":
@@ -1891,7 +2018,7 @@ def main():
                                 game["enemies"].append(spawn_boss(game["game_time"], game["wave_number"]))
                             else:
                                 for _ in range(count):
-                                    game["enemies"].append(spawn_enemy(game["game_time"], game["wave_number"]))
+                                    game["enemies"].append(spawn_enemy(game["game_time"], game["wave_number"], obstacles=game.get("obstacles")))
                             game["spawned"].add(trigger_time)
 
                 while state == "playing" and game["game_time"] >= game["next_wave_time"]:
@@ -1934,6 +2061,7 @@ def main():
                 game["game_time"],
                 game["wave_number"],
                 game["bosses_defeated"],
+                game["streak"],
             )
 
             if shop.open:
