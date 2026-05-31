@@ -12,11 +12,11 @@ PLAYER_SIZE = 40
 PLAYER_START_HEALTH = 5
 PLAYER_START_SPEED = 300
 
-BULLET_SPEED = 600
-BULLET_RADIUS = 8
+BULLET_START_SPEED = 600
+BULLET_START_RADIUS = 8
 BULLET_START_DAMAGE = 1
 BULLET_START_COOLDOWN = 0.35
-MIN_SHOT_COOLDOWN = 0.12
+BULLET_START_SPREAD = 10
 
 ENEMY_SIZE = 40
 ENEMY_SPEED = 120
@@ -31,6 +31,10 @@ SPAWN_TIMING = {
     50: 1,
 }
 BOSS_TRIGGER_TIME = 50
+INFINITE_WAVE_START = 60
+BASE_WAVE_INTERVAL = 10
+MIN_WAVE_INTERVAL = 4
+BOSS_WAVE_INTERVAL = 45
 
 
 class Player:
@@ -41,6 +45,14 @@ class Player:
         self.damage = BULLET_START_DAMAGE
         self.shot_cooldown = BULLET_START_COOLDOWN
         self.shot_timer = 0
+        self.bullet_speed = BULLET_START_SPEED
+        self.bullet_radius = BULLET_START_RADIUS
+        self.bullet_count = 1
+        self.bullet_spread = BULLET_START_SPREAD
+        self.hurt_cooldown = 1
+        self.point_bonus = 0
+        self.regen_rate = 0
+        self.regen_progress = 0
         self.pos = pygame.Vector2(x, y)
         self.rect = pygame.Rect(0, 0, PLAYER_SIZE, PLAYER_SIZE)
         self.rect.center = self.pos
@@ -60,6 +72,13 @@ class Player:
             direction = direction.normalize()
             self.pos += direction * self.speed * dt
 
+        if self.regen_rate > 0 and self.health < self.max_health:
+            self.regen_progress += self.regen_rate * dt
+            if self.regen_progress >= 1:
+                healing = int(self.regen_progress)
+                self.health = min(self.max_health, self.health + healing)
+                self.regen_progress -= healing
+
         self.pos.x %= WIDTH
         self.pos.y %= HEIGHT
         self.rect.center = (int(self.pos.x), int(self.pos.y))
@@ -70,36 +89,56 @@ class Player:
 
     def shoot(self, target_x, target_y):
         if not self.can_shoot():
-            return None
+            return []
 
         self.shot_timer = self.shot_cooldown
-        return Bullet(self.pos.x, self.pos.y, target_x, target_y, self.damage)
+        dx = target_x - self.pos.x
+        dy = target_y - self.pos.y
+        base_angle = math.atan2(dy, dx) if dx or dy else 0
+        spread_step = math.radians(self.bullet_spread)
+        total_spread = spread_step * (self.bullet_count - 1)
+
+        bullets = []
+        for i in range(self.bullet_count):
+            angle = base_angle - total_spread / 2 + spread_step * i
+            bullets.append(
+                Bullet(
+                    self.pos.x,
+                    self.pos.y,
+                    angle,
+                    self.damage,
+                    self.bullet_speed,
+                    self.bullet_radius,
+                )
+            )
+        return bullets
 
     def draw(self, screen):
         pygame.draw.circle(screen, "blue", (int(self.pos.x), int(self.pos.y)), 20)
 
 
 class Enemy:
-    def __init__(self, x, y, game_time, is_boss=False):
+    def __init__(self, x, y, game_time, is_boss=False, wave_number=0):
         self.is_boss = is_boss
         size = BOSS_SIZE if is_boss else ENEMY_SIZE
         self.rect = pygame.Rect(0, 0, size, size)
         self.pos = pygame.Vector2(x, y)
         self.rect.center = self.pos
 
+        normal_health = self.normal_enemy_health(game_time, wave_number)
         if is_boss:
             self.speed = BOSS_SPEED
-            self.health = self.normal_enemy_health(game_time) * 3
-            self.points = 15
+            self.health = normal_health * 3
+            self.points = 12 + wave_number * 3
         else:
-            self.speed = ENEMY_SPEED
-            self.health = self.normal_enemy_health(game_time)
-            self.points = 1
+            self.speed = ENEMY_SPEED + min(60, wave_number * 2)
+            self.health = normal_health
+            self.points = max(1, normal_health // 2)
 
     @staticmethod
-    def normal_enemy_health(game_time):
+    def normal_enemy_health(game_time, wave_number=0):
         if game_time >= 40:
-            return 4
+            return 4 + wave_number // 2
         if game_time >= 27:
             return 3
         if game_time >= 15:
@@ -139,29 +178,24 @@ class Enemy:
 
 
 class Bullet:
-    def __init__(self, x, y, target_x, target_y, damage):
+    def __init__(self, x, y, angle, damage, speed, radius):
         self.pos = pygame.Vector2(x, y)
         self.damage = damage
-        dx = target_x - x
-        dy = target_y - y
-        distance = math.hypot(dx, dy)
-        if distance != 0:
-            self.vel = pygame.Vector2(dx / distance * BULLET_SPEED, dy / distance * BULLET_SPEED)
-        else:
-            self.vel = pygame.Vector2(BULLET_SPEED, 0)
+        self.radius = radius
+        self.vel = pygame.Vector2(math.cos(angle) * speed, math.sin(angle) * speed)
 
     def update(self, dt):
         self.pos += self.vel * dt
 
     def draw(self, screen):
-        pygame.draw.circle(screen, "orange", (int(self.pos.x), int(self.pos.y)), BULLET_RADIUS)
+        pygame.draw.circle(screen, "orange", (int(self.pos.x), int(self.pos.y)), self.radius)
 
     def is_off_screen(self):
         return (
-            self.pos.x < 0
-            or self.pos.x > WIDTH
-            or self.pos.y < 0
-            or self.pos.y > HEIGHT
+            self.pos.x < -self.radius
+            or self.pos.x > WIDTH + self.radius
+            or self.pos.y < -self.radius
+            or self.pos.y > HEIGHT + self.radius
         )
 
 
@@ -169,82 +203,117 @@ class Shop:
     def __init__(self):
         self.open = False
         self.items = [
-            {
-                "key": pygame.K_1,
-                "label": "1) Max Health +1",
-                "cost": 5,
-                "apply": self.buy_health,
-            },
-            {
-                "key": pygame.K_2,
-                "label": "2) Bullet Damage +1",
-                "cost": 10,
-                "apply": self.buy_damage,
-            },
-            {
-                "key": pygame.K_3,
-                "label": "3) Faster Fire Rate",
-                "cost": 12,
-                "apply": self.buy_fire_rate,
-            },
-            {
-                "key": pygame.K_4,
-                "label": "4) Move Speed +40",
-                "cost": 8,
-                "apply": self.buy_speed,
-            },
+            self.item(pygame.K_1, "1) Max Health +1", 5, 2, self.buy_health),
+            self.item(pygame.K_2, "2) Heal +2", 4, 2, self.buy_heal),
+            self.item(pygame.K_3, "3) Bullet Damage +1", 10, 4, self.buy_damage),
+            self.item(pygame.K_4, "4) Faster Fire Rate", 12, 5, self.buy_fire_rate),
+            self.item(pygame.K_5, "5) Move Speed +30", 8, 3, self.buy_speed),
+            self.item(pygame.K_6, "6) Bullet Speed +75", 7, 3, self.buy_bullet_speed),
+            self.item(pygame.K_7, "7) Bullet Size +1", 9, 4, self.buy_bullet_size),
+            self.item(pygame.K_8, "8) Extra Shot", 15, 8, self.buy_extra_shot),
+            self.item(pygame.K_9, "9) Kill Point Bonus +1", 18, 9, self.buy_point_bonus),
+            self.item(pygame.K_0, "0) Health Regen +0.2/s", 20, 10, self.buy_regen),
         ]
+
+    @staticmethod
+    def item(key, label, base_cost, cost_growth, apply):
+        return {
+            "key": key,
+            "label": label,
+            "base_cost": base_cost,
+            "cost_growth": cost_growth,
+            "purchases": 0,
+            "apply": apply,
+        }
+
+    def cost(self, item):
+        return item["base_cost"] + item["cost_growth"] * item["purchases"]
 
     def try_buy(self, key, player, points):
         for item in self.items:
-            if key == item["key"] and points >= item["cost"]:
+            cost = self.cost(item)
+            if key == item["key"] and points >= cost:
                 item["apply"](player)
-                return points - item["cost"]
+                item["purchases"] += 1
+                return points - cost
         return points
 
     def buy_health(self, player):
         player.max_health += 1
-        player.health = player.max_health
+        player.health = min(player.max_health, player.health + 1)
+
+    def buy_heal(self, player):
+        player.health = min(player.max_health, player.health + 2)
 
     def buy_damage(self, player):
         player.damage += 1
 
     def buy_fire_rate(self, player):
-        player.shot_cooldown = max(MIN_SHOT_COOLDOWN, player.shot_cooldown - 0.06)
+        player.shot_cooldown *= 0.9
 
     def buy_speed(self, player):
-        player.speed += 40
+        player.speed += 30
+
+    def buy_bullet_speed(self, player):
+        player.bullet_speed += 75
+
+    def buy_bullet_size(self, player):
+        player.bullet_radius += 1
+
+    def buy_extra_shot(self, player):
+        player.bullet_count += 1
+        player.bullet_spread = min(18, player.bullet_spread + 1)
+
+    def buy_point_bonus(self, player):
+        player.point_bonus += 1
+
+    def buy_regen(self, player):
+        player.regen_rate += 0.2
+
+    def reset_purchases(self):
+        for item in self.items:
+            item["purchases"] = 0
 
     def draw(self, screen, font, player, points):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 170))
         screen.blit(overlay, (0, 0))
 
-        panel = pygame.Rect(330, 100, 620, 470)
+        panel = pygame.Rect(230, 45, 820, 630)
         pygame.draw.rect(screen, "darkgray", panel)
         pygame.draw.rect(screen, "black", panel, 4)
 
-        title = font.render("Shop - press TAB to close", True, "white")
-        screen.blit(title, (panel.x + 30, panel.y + 25))
+        title = font.render("Shop - repeat buys allowed - press TAB to close", True, "white")
+        screen.blit(title, (panel.x + 30, panel.y + 20))
 
         points_text = font.render(f"Points: {points}", True, "yellow")
-        screen.blit(points_text, (panel.x + 30, panel.y + 70))
+        screen.blit(points_text, (panel.x + 30, panel.y + 60))
 
         for i, item in enumerate(self.items):
-            affordable = points >= item["cost"]
+            cost = self.cost(item)
+            affordable = points >= cost
             color = "white" if affordable else "gray"
-            text = font.render(f"{item['label']} - {item['cost']} pts", True, color)
-            screen.blit(text, (panel.x + 30, panel.y + 130 + i * 55))
+            text = font.render(
+                f"{item['label']} - {cost} pts (bought {item['purchases']})",
+                True,
+                color,
+            )
+            screen.blit(text, (panel.x + 30, panel.y + 110 + i * 42))
 
         stats = [
             f"Health: {player.health}/{player.max_health}",
             f"Damage: {player.damage}",
             f"Shot cooldown: {player.shot_cooldown:.2f}s",
-            f"Speed: {player.speed}",
+            f"Move speed: {player.speed}",
+            f"Bullet speed: {player.bullet_speed}",
+            f"Bullet size: {player.bullet_radius}",
+            f"Bullets/shot: {player.bullet_count}",
+            f"Point bonus: +{player.point_bonus}",
+            f"Regen: {player.regen_rate:.1f}/s",
         ]
         for i, stat in enumerate(stats):
             text = font.render(stat, True, "black")
-            screen.blit(text, (panel.x + 350, panel.y + 130 + i * 45))
+            screen.blit(text, (panel.x + 460, panel.y + 110 + i * 42))
 
 
 def draw_text(screen, font, text, color, x, y):
@@ -252,7 +321,7 @@ def draw_text(screen, font, text, color, x, y):
     screen.blit(rendered, (x, y))
 
 
-def spawn_enemy(game_time):
+def spawn_enemy(game_time, wave_number=0):
     edge = random.choice(("top", "bottom", "left", "right"))
     if edge == "top":
         x, y = random.randint(0, WIDTH), 0
@@ -263,14 +332,27 @@ def spawn_enemy(game_time):
     else:
         x, y = WIDTH, random.randint(0, HEIGHT)
 
-    return Enemy(x, y, game_time)
+    return Enemy(x, y, game_time, wave_number=wave_number)
 
 
-def spawn_boss(game_time):
-    return Enemy(WIDTH // 2, 60, game_time, is_boss=True)
+def spawn_boss(game_time, wave_number=0):
+    return Enemy(WIDTH // 2, 60, game_time, is_boss=True, wave_number=wave_number)
 
 
-def reset_game():
+def spawn_infinite_wave(game):
+    game["wave_number"] += 1
+    count = 6 + game["wave_number"] * 2
+    for _ in range(count):
+        game["enemies"].append(spawn_enemy(game["game_time"], game["wave_number"]))
+
+    interval = max(MIN_WAVE_INTERVAL, BASE_WAVE_INTERVAL - game["wave_number"] * 0.25)
+    game["next_wave_time"] += interval
+
+
+def reset_game(shop=None):
+    if shop is not None:
+        shop.reset_purchases()
+
     player = Player(WIDTH // 2, HEIGHT // 2)
     enemies = [spawn_enemy(0) for _ in range(SPAWN_TIMING[3])]
     return {
@@ -282,23 +364,31 @@ def reset_game():
         "game_time": 0,
         "kills": 0,
         "points": 0,
-        "boss_defeated": False,
+        "bosses_defeated": 0,
+        "next_wave_time": INFINITE_WAVE_START,
+        "wave_number": 0,
+        "next_boss_time": BOSS_TRIGGER_TIME + BOSS_WAVE_INTERVAL,
     }
 
 
-def draw_hud(screen, font, player, kills, points, game_time):
-    pygame.draw.rect(screen, "red", (40, 10, player.health * 40, 20))
-    pygame.draw.rect(screen, "black", (40, 10, player.max_health * 40, 20), 3)
+def draw_hud(screen, font, player, kills, points, game_time, wave_number, bosses_defeated):
+    max_bar_width = 400
+    bar_width = min(max_bar_width, player.max_health * 40)
+    fill_width = int(bar_width * player.health / player.max_health) if player.max_health else 0
+    pygame.draw.rect(screen, "red", (40, 10, fill_width, 20))
+    pygame.draw.rect(screen, "black", (40, 10, bar_width, 20), 3)
 
     draw_text(screen, font, f"Player Health: {player.health}/{player.max_health}", "black", 40, 35)
     draw_text(screen, font, f"Kills: {kills}", "black", 40, 65)
     draw_text(screen, font, f"Points: {points}", "black", 40, 95)
     draw_text(screen, font, f"Time: {int(game_time)}s", "black", 40, 125)
+    draw_text(screen, font, f"Infinite Wave: {wave_number}", "black", 40, 155)
+    draw_text(screen, font, f"Bosses Defeated: {bosses_defeated}", "black", 40, 185)
 
     if player.can_shoot():
-        draw_text(screen, font, "Shot Ready", "green", 40, 155)
+        draw_text(screen, font, "Shot Ready", "green", 40, 215)
     else:
-        draw_text(screen, font, f"Cooldown: {player.shot_timer:.1f}s", "red", 40, 155)
+        draw_text(screen, font, f"Cooldown: {player.shot_timer:.1f}s", "red", 40, 215)
 
     draw_text(screen, font, "TAB: Shop", "black", WIDTH - 180, 20)
 
@@ -307,17 +397,19 @@ def draw_menu(screen, font, title_font):
     screen.fill("black")
     draw_text(screen, title_font, "Survival Shooter", "white", 430, 150)
     draw_text(screen, font, "WASD to move. Left click to shoot.", "gray", 430, 260)
-    draw_text(screen, font, "Earn points from kills, then press TAB for the shop.", "gray", 430, 305)
-    draw_text(screen, font, "A final boss arrives at 50 seconds.", "gray", 430, 350)
+    draw_text(screen, font, "Earn points from kills, then press TAB for repeatable upgrades.", "gray", 430, 305)
+    draw_text(screen, font, "Bosses start at 50 seconds and waves continue forever.", "gray", 430, 350)
     draw_text(screen, font, "Press ENTER to start or Q to quit.", "yellow", 430, 430)
 
 
-def draw_end_screen(screen, font, title, kills, points):
+def draw_end_screen(screen, font, title, kills, points, wave_number, bosses_defeated):
     screen.fill("black")
-    draw_text(screen, font, title, "white", 540, 285)
-    draw_text(screen, font, f"Final Kills: {kills}", "white", 540, 335)
-    draw_text(screen, font, f"Final Points: {points}", "white", 540, 375)
-    draw_text(screen, font, "Press R to Restart, M for Menu, or Q to Quit", "gray", 420, 430)
+    draw_text(screen, font, title, "white", 540, 260)
+    draw_text(screen, font, f"Final Kills: {kills}", "white", 540, 310)
+    draw_text(screen, font, f"Final Points: {points}", "white", 540, 350)
+    draw_text(screen, font, f"Highest Wave: {wave_number}", "white", 540, 390)
+    draw_text(screen, font, f"Bosses Defeated: {bosses_defeated}", "white", 540, 430)
+    draw_text(screen, font, "Press R to Restart, M for Menu, or Q to Quit", "gray", 420, 485)
 
 
 def main():
@@ -329,7 +421,7 @@ def main():
     title_font = pygame.font.Font(None, 72)
 
     shop = Shop()
-    game = reset_game()
+    game = reset_game(shop)
     state = "menu"
     running = True
     dt = 0
@@ -345,12 +437,12 @@ def main():
                 if event.key == pygame.K_q:
                     running = False
                 elif state == "menu" and event.key == pygame.K_RETURN:
-                    game = reset_game()
+                    game = reset_game(shop)
                     shop.open = False
                     state = "playing"
-                elif state in ("game_over", "victory"):
+                elif state == "game_over":
                     if event.key == pygame.K_r:
-                        game = reset_game()
+                        game = reset_game(shop)
                         shop.open = False
                         state = "playing"
                     elif event.key == pygame.K_m:
@@ -364,9 +456,7 @@ def main():
             if event.type == pygame.MOUSEBUTTONDOWN and state == "playing" and not shop.open:
                 if event.button == 1:
                     mx, my = pygame.mouse.get_pos()
-                    bullet = player.shoot(mx, my)
-                    if bullet is not None:
-                        game["bullets"].append(bullet)
+                    game["bullets"].extend(player.shoot(mx, my))
 
         if state == "menu":
             draw_menu(screen, font, title_font)
@@ -393,45 +483,65 @@ def main():
                             if enemy.health <= 0:
                                 game["enemies"].remove(enemy)
                                 game["kills"] += 1
-                                game["points"] += enemy.points
+                                game["points"] += enemy.points + player.point_bonus
                                 if enemy.is_boss:
-                                    game["boss_defeated"] = True
-                                    state = "victory"
+                                    game["bosses_defeated"] += 1
                             break
 
-                if state == "playing":
-                    for enemy in game["enemies"][:]:
-                        enemy.update(player.pos, dt, game["enemies"])
-                        if enemy.rect.colliderect(player.rect) and game["damage_cooldown"] <= 0:
-                            player.health -= 1
-                            game["damage_cooldown"] = 1
-                            if player.health <= 0:
-                                state = "game_over"
-                                break
+                for enemy in game["enemies"][:]:
+                    enemy.update(player.pos, dt, game["enemies"])
+                    if enemy.rect.colliderect(player.rect) and game["damage_cooldown"] <= 0:
+                        player.health -= 1
+                        game["damage_cooldown"] = player.hurt_cooldown
+                        if player.health <= 0:
+                            state = "game_over"
+                            break
 
                 if state == "playing":
                     for trigger_time, count in SPAWN_TIMING.items():
                         if game["game_time"] >= trigger_time and trigger_time not in game["spawned"]:
                             if trigger_time == BOSS_TRIGGER_TIME:
-                                game["enemies"].append(spawn_boss(game["game_time"]))
+                                game["enemies"].append(spawn_boss(game["game_time"], game["wave_number"]))
                             else:
                                 for _ in range(count):
-                                    game["enemies"].append(spawn_enemy(game["game_time"]))
+                                    game["enemies"].append(spawn_enemy(game["game_time"], game["wave_number"]))
                             game["spawned"].add(trigger_time)
+
+                while state == "playing" and game["game_time"] >= game["next_wave_time"]:
+                    spawn_infinite_wave(game)
+
+                while state == "playing" and game["game_time"] >= game["next_boss_time"]:
+                    game["enemies"].append(spawn_boss(game["game_time"], game["wave_number"]))
+                    game["next_boss_time"] += BOSS_WAVE_INTERVAL
 
             player.draw(screen)
             for bullet in game["bullets"]:
                 bullet.draw(screen)
             for enemy in game["enemies"]:
                 enemy.draw(screen, font)
-            draw_hud(screen, font, player, game["kills"], game["points"], game["game_time"])
+            draw_hud(
+                screen,
+                font,
+                player,
+                game["kills"],
+                game["points"],
+                game["game_time"],
+                game["wave_number"],
+                game["bosses_defeated"],
+            )
 
             if shop.open:
                 shop.draw(screen, font, player, game["points"])
         elif state == "game_over":
-            draw_end_screen(screen, font, "GAME OVER", game["kills"], game["points"])
-        elif state == "victory":
-            draw_end_screen(screen, font, "BOSS DEFEATED!", game["kills"], game["points"])
+            draw_end_screen(
+                screen,
+                font,
+                "GAME OVER",
+                game["kills"],
+                game["points"],
+                game["wave_number"],
+                game["bosses_defeated"],
+            )
 
         pygame.display.flip()
         dt = clock.tick(FPS) / 1000
