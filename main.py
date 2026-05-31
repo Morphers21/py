@@ -35,6 +35,9 @@ INFINITE_WAVE_START = 60
 BASE_WAVE_INTERVAL = 10
 MIN_WAVE_INTERVAL = 4
 BOSS_WAVE_INTERVAL = 45
+START_XP_REQUIREMENT = 6
+XP_REQUIREMENT_MULTIPLIER = 1.45
+LEVEL_UP_CARD_COUNT = 3
 
 
 class Player:
@@ -53,6 +56,7 @@ class Player:
         self.point_bonus = 0
         self.regen_rate = 0
         self.regen_progress = 0
+        self.xp_multiplier = 1.0
         self.pos = pygame.Vector2(x, y)
         self.rect = pygame.Rect(0, 0, PLAYER_SIZE, PLAYER_SIZE)
         self.rect.center = self.pos
@@ -130,10 +134,12 @@ class Enemy:
             self.speed = BOSS_SPEED
             self.health = normal_health * 3
             self.points = 12 + wave_number * 3
+            self.xp_reward = 8 + wave_number * 2
         else:
             self.speed = ENEMY_SPEED + min(60, wave_number * 2)
             self.health = normal_health
             self.points = max(1, normal_health // 2)
+            self.xp_reward = max(1, normal_health)
 
     @staticmethod
     def normal_enemy_health(game_time, wave_number=0):
@@ -310,6 +316,7 @@ class Shop:
             f"Bullets/shot: {player.bullet_count}",
             f"Point bonus: +{player.point_bonus}",
             f"Regen: {player.regen_rate:.1f}/s",
+            f"XP gain: x{player.xp_multiplier:.2f}",
         ]
         for i, stat in enumerate(stats):
             text = font.render(stat, True, "black")
@@ -349,6 +356,116 @@ def spawn_infinite_wave(game):
     game["next_wave_time"] += interval
 
 
+def xp_requirement(level):
+    return math.ceil(START_XP_REQUIREMENT * XP_REQUIREMENT_MULTIPLIER ** (level - 1))
+
+
+def start_level_up_if_ready(game):
+    if game["level_up_cards"] or game["xp"] < game["xp_to_next_level"]:
+        return False
+
+    game["xp"] -= game["xp_to_next_level"]
+    game["level"] += 1
+    game["xp_to_next_level"] = xp_requirement(game["level"])
+    game["level_up_cards"] = make_level_cards()
+    return True
+
+
+def add_xp(game, amount):
+    gained = max(1, round(amount * game["player"].xp_multiplier))
+    game["xp"] += gained
+    return start_level_up_if_ready(game)
+
+
+def make_level_cards():
+    cards = [
+        {
+            "name": "Power Card",
+            "description": "Bullet damage x1.25",
+            "apply": apply_damage_card,
+        },
+        {
+            "name": "Rapid Card",
+            "description": "Shot cooldown x0.82",
+            "apply": apply_fire_rate_card,
+        },
+        {
+            "name": "Swift Card",
+            "description": "Move speed x1.18",
+            "apply": apply_speed_card,
+        },
+        {
+            "name": "Tank Card",
+            "description": "Max health x1.25 and heal",
+            "apply": apply_health_card,
+        },
+        {
+            "name": "Velocity Card",
+            "description": "Bullet speed x1.25",
+            "apply": apply_bullet_speed_card,
+        },
+        {
+            "name": "Giant Card",
+            "description": "Bullet size x1.25",
+            "apply": apply_bullet_size_card,
+        },
+        {
+            "name": "Wisdom Card",
+            "description": "XP gain x1.25",
+            "apply": apply_xp_card,
+        },
+        {
+            "name": "Regrowth Card",
+            "description": "Health regen x1.5",
+            "apply": apply_regen_card,
+        },
+    ]
+    return random.sample(cards, LEVEL_UP_CARD_COUNT)
+
+
+def apply_level_card(game, card_index):
+    cards = game["level_up_cards"]
+    if not 0 <= card_index < len(cards):
+        return False
+
+    cards[card_index]["apply"](game["player"])
+    game["level_up_cards"] = []
+    return start_level_up_if_ready(game)
+
+
+def apply_damage_card(player):
+    player.damage = max(player.damage + 1, math.ceil(player.damage * 1.25))
+
+
+def apply_fire_rate_card(player):
+    player.shot_cooldown *= 0.82
+
+
+def apply_speed_card(player):
+    player.speed = math.ceil(player.speed * 1.18)
+
+
+def apply_health_card(player):
+    player.max_health = max(player.max_health + 1, math.ceil(player.max_health * 1.25))
+    player.health = player.max_health
+
+
+def apply_bullet_speed_card(player):
+    player.bullet_speed = math.ceil(player.bullet_speed * 1.25)
+
+
+def apply_bullet_size_card(player):
+    player.bullet_radius = max(player.bullet_radius + 1, math.ceil(player.bullet_radius * 1.25))
+
+
+def apply_xp_card(player):
+    player.xp_multiplier *= 1.25
+
+
+def apply_regen_card(player):
+    player.regen_rate = max(0.2, player.regen_rate * 1.5)
+
+
 def reset_game(shop=None):
     if shop is not None:
         shop.reset_purchases()
@@ -364,6 +481,10 @@ def reset_game(shop=None):
         "game_time": 0,
         "kills": 0,
         "points": 0,
+        "level": 1,
+        "xp": 0,
+        "xp_to_next_level": xp_requirement(1),
+        "level_up_cards": [],
         "bosses_defeated": 0,
         "next_wave_time": INFINITE_WAVE_START,
         "wave_number": 0,
@@ -371,26 +492,69 @@ def reset_game(shop=None):
     }
 
 
-def draw_hud(screen, font, player, kills, points, game_time, wave_number, bosses_defeated):
+def draw_hud(
+    screen,
+    font,
+    player,
+    kills,
+    points,
+    level,
+    xp,
+    xp_to_next_level,
+    game_time,
+    wave_number,
+    bosses_defeated,
+):
     max_bar_width = 400
     bar_width = min(max_bar_width, player.max_health * 40)
     fill_width = int(bar_width * player.health / player.max_health) if player.max_health else 0
     pygame.draw.rect(screen, "red", (40, 10, fill_width, 20))
     pygame.draw.rect(screen, "black", (40, 10, bar_width, 20), 3)
 
+    xp_bar_width = 240
+    xp_fill_width = int(xp_bar_width * xp / xp_to_next_level) if xp_to_next_level else 0
+    pygame.draw.rect(screen, "gold", (40, 240, xp_fill_width, 18))
+    pygame.draw.rect(screen, "black", (40, 240, xp_bar_width, 18), 3)
+
     draw_text(screen, font, f"Player Health: {player.health}/{player.max_health}", "black", 40, 35)
-    draw_text(screen, font, f"Kills: {kills}", "black", 40, 65)
-    draw_text(screen, font, f"Points: {points}", "black", 40, 95)
-    draw_text(screen, font, f"Time: {int(game_time)}s", "black", 40, 125)
-    draw_text(screen, font, f"Infinite Wave: {wave_number}", "black", 40, 155)
-    draw_text(screen, font, f"Bosses Defeated: {bosses_defeated}", "black", 40, 185)
+    draw_text(screen, font, f"Level: {level}", "black", 40, 65)
+    draw_text(screen, font, f"XP: {xp}/{xp_to_next_level}", "black", 40, 95)
+    draw_text(screen, font, f"Kills: {kills}", "black", 40, 125)
+    draw_text(screen, font, f"Points: {points}", "black", 40, 155)
+    draw_text(screen, font, f"Time: {int(game_time)}s", "black", 40, 185)
+    draw_text(screen, font, f"Infinite Wave: {wave_number}", "black", 40, 215)
+    draw_text(screen, font, f"Bosses Defeated: {bosses_defeated}", "black", 40, 265)
 
     if player.can_shoot():
-        draw_text(screen, font, "Shot Ready", "green", 40, 215)
+        draw_text(screen, font, "Shot Ready", "green", 40, 295)
     else:
-        draw_text(screen, font, f"Cooldown: {player.shot_timer:.1f}s", "red", 40, 215)
+        draw_text(screen, font, f"Cooldown: {player.shot_timer:.1f}s", "red", 40, 295)
 
     draw_text(screen, font, "TAB: Shop", "black", WIDTH - 180, 20)
+
+
+def draw_level_up(screen, font, title_font, game):
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 190))
+    screen.blit(overlay, (0, 0))
+
+    draw_text(screen, title_font, f"LEVEL {game['level']}!", "gold", 515, 95)
+    draw_text(screen, font, "Choose a stat multiplier card", "white", 460, 170)
+
+    card_width = 300
+    card_height = 250
+    start_x = (WIDTH - (card_width * LEVEL_UP_CARD_COUNT + 35 * (LEVEL_UP_CARD_COUNT - 1))) // 2
+    for i, card in enumerate(game["level_up_cards"]):
+        x = start_x + i * (card_width + 35)
+        y = 245
+        rect = pygame.Rect(x, y, card_width, card_height)
+        pygame.draw.rect(screen, "navy", rect)
+        pygame.draw.rect(screen, "gold", rect, 4)
+        draw_text(screen, font, f"Press {i + 1}", "yellow", x + 95, y + 25)
+        draw_text(screen, font, card["name"], "white", x + 45, y + 85)
+        draw_text(screen, font, card["description"], "white", x + 25, y + 145)
+
+    draw_text(screen, font, f"Next level needs {game['xp_to_next_level']} XP", "gray", 465, 555)
 
 
 def draw_menu(screen, font, title_font):
@@ -398,18 +562,20 @@ def draw_menu(screen, font, title_font):
     draw_text(screen, title_font, "Survival Shooter", "white", 430, 150)
     draw_text(screen, font, "WASD to move. Left click to shoot.", "gray", 430, 260)
     draw_text(screen, font, "Earn points from kills, then press TAB for repeatable upgrades.", "gray", 430, 305)
-    draw_text(screen, font, "Bosses start at 50 seconds and waves continue forever.", "gray", 430, 350)
-    draw_text(screen, font, "Press ENTER to start or Q to quit.", "yellow", 430, 430)
+    draw_text(screen, font, "Kills also give XP. Level up to pick multiplier cards.", "gray", 430, 350)
+    draw_text(screen, font, "Bosses start at 50 seconds and waves continue forever.", "gray", 430, 395)
+    draw_text(screen, font, "Press ENTER to start or Q to quit.", "yellow", 430, 475)
 
 
-def draw_end_screen(screen, font, title, kills, points, wave_number, bosses_defeated):
+def draw_end_screen(screen, font, title, kills, points, level, wave_number, bosses_defeated):
     screen.fill("black")
-    draw_text(screen, font, title, "white", 540, 260)
-    draw_text(screen, font, f"Final Kills: {kills}", "white", 540, 310)
-    draw_text(screen, font, f"Final Points: {points}", "white", 540, 350)
-    draw_text(screen, font, f"Highest Wave: {wave_number}", "white", 540, 390)
-    draw_text(screen, font, f"Bosses Defeated: {bosses_defeated}", "white", 540, 430)
-    draw_text(screen, font, "Press R to Restart, M for Menu, or Q to Quit", "gray", 420, 485)
+    draw_text(screen, font, title, "white", 540, 240)
+    draw_text(screen, font, f"Final Level: {level}", "white", 540, 290)
+    draw_text(screen, font, f"Final Kills: {kills}", "white", 540, 330)
+    draw_text(screen, font, f"Final Points: {points}", "white", 540, 370)
+    draw_text(screen, font, f"Highest Wave: {wave_number}", "white", 540, 410)
+    draw_text(screen, font, f"Bosses Defeated: {bosses_defeated}", "white", 540, 450)
+    draw_text(screen, font, "Press R to Restart, M for Menu, or Q to Quit", "gray", 420, 505)
 
 
 def main():
@@ -440,6 +606,11 @@ def main():
                     game = reset_game(shop)
                     shop.open = False
                     state = "playing"
+                elif state == "level_up":
+                    if event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
+                        card_index = event.key - pygame.K_1
+                        has_another_level = apply_level_card(game, card_index)
+                        state = "level_up" if has_another_level else "playing"
                 elif state == "game_over":
                     if event.key == pygame.K_r:
                         game = reset_game(shop)
@@ -460,10 +631,10 @@ def main():
 
         if state == "menu":
             draw_menu(screen, font, title_font)
-        elif state == "playing":
+        elif state in ("playing", "level_up"):
             screen.fill("white")
 
-            if not shop.open:
+            if state == "playing" and not shop.open:
                 keys = pygame.key.get_pressed()
                 player.update(keys, dt)
                 game["game_time"] += dt
@@ -484,18 +655,22 @@ def main():
                                 game["enemies"].remove(enemy)
                                 game["kills"] += 1
                                 game["points"] += enemy.points + player.point_bonus
+                                if add_xp(game, enemy.xp_reward):
+                                    shop.open = False
+                                    state = "level_up"
                                 if enemy.is_boss:
                                     game["bosses_defeated"] += 1
                             break
 
-                for enemy in game["enemies"][:]:
-                    enemy.update(player.pos, dt, game["enemies"])
-                    if enemy.rect.colliderect(player.rect) and game["damage_cooldown"] <= 0:
-                        player.health -= 1
-                        game["damage_cooldown"] = player.hurt_cooldown
-                        if player.health <= 0:
-                            state = "game_over"
-                            break
+                if state == "playing":
+                    for enemy in game["enemies"][:]:
+                        enemy.update(player.pos, dt, game["enemies"])
+                        if enemy.rect.colliderect(player.rect) and game["damage_cooldown"] <= 0:
+                            player.health -= 1
+                            game["damage_cooldown"] = player.hurt_cooldown
+                            if player.health <= 0:
+                                state = "game_over"
+                                break
 
                 if state == "playing":
                     for trigger_time, count in SPAWN_TIMING.items():
@@ -525,6 +700,9 @@ def main():
                 player,
                 game["kills"],
                 game["points"],
+                game["level"],
+                game["xp"],
+                game["xp_to_next_level"],
                 game["game_time"],
                 game["wave_number"],
                 game["bosses_defeated"],
@@ -532,6 +710,8 @@ def main():
 
             if shop.open:
                 shop.draw(screen, font, player, game["points"])
+            if state == "level_up":
+                draw_level_up(screen, font, title_font, game)
         elif state == "game_over":
             draw_end_screen(
                 screen,
@@ -539,6 +719,7 @@ def main():
                 "GAME OVER",
                 game["kills"],
                 game["points"],
+                game["level"],
                 game["wave_number"],
                 game["bosses_defeated"],
             )
