@@ -124,34 +124,44 @@ class Player:
             )
 
         if self.rocket_level > 0:
-            bullets.append(
-                Bullet(
-                    self.pos.x,
-                    self.pos.y,
-                    base_angle,
-                    self.damage * 2 + self.rocket_level * 2,
-                    self.bullet_speed * 0.55,
-                    self.bullet_radius + 5,
-                    color="orangered",
-                    weapon_type="rocket",
-                    splash_radius=70 + self.rocket_level * 12,
+            rocket_count = min(3, 1 + max(0, self.bullet_count - 1) // 5)
+            rocket_step = math.radians(8)
+            rocket_spread = rocket_step * (rocket_count - 1)
+            for i in range(rocket_count):
+                angle = base_angle - rocket_spread / 2 + rocket_step * i
+                bullets.append(
+                    Bullet(
+                        self.pos.x,
+                        self.pos.y,
+                        angle,
+                        math.ceil(self.damage * (2.0 + self.rocket_level * 0.35)),
+                        self.bullet_speed * (0.5 + min(0.25, self.rocket_level * 0.03)),
+                        max(self.bullet_radius + 5, math.ceil(self.bullet_radius * 1.5)),
+                        color="orangered",
+                        weapon_type="rocket",
+                        splash_radius=50 + self.bullet_radius * 3 + self.rocket_level * 18,
+                    )
                 )
-            )
 
         if self.laser_level > 0:
-            bullets.append(
-                Bullet(
-                    self.pos.x,
-                    self.pos.y,
-                    base_angle,
-                    max(1, math.ceil(self.damage * 0.75) + self.laser_level),
-                    self.bullet_speed * 1.8,
-                    5,
-                    pierce=2 + self.laser_level,
-                    color="cyan",
-                    weapon_type="laser",
+            laser_count = min(4, 1 + max(0, self.bullet_count - 1) // 4)
+            laser_step = math.radians(5)
+            laser_spread = laser_step * (laser_count - 1)
+            for i in range(laser_count):
+                angle = base_angle - laser_spread / 2 + laser_step * i
+                bullets.append(
+                    Bullet(
+                        self.pos.x,
+                        self.pos.y,
+                        angle,
+                        max(1, math.ceil(self.damage * (0.75 + self.laser_level * 0.12))),
+                        self.bullet_speed * (1.8 + min(0.6, self.laser_level * 0.08)),
+                        max(5, math.ceil(self.bullet_radius * 0.45)),
+                        pierce=2 + self.laser_level + self.bullet_pierce,
+                        color="cyan",
+                        weapon_type="laser",
+                    )
                 )
-            )
 
         return bullets
 
@@ -301,6 +311,32 @@ class Bullet:
             or self.pos.y < -self.radius
             or self.pos.y > HEIGHT + self.radius
         )
+
+
+class Explosion:
+    def __init__(self, pos, radius):
+        self.pos = pygame.Vector2(pos)
+        self.radius = radius
+        self.life = 0.35
+        self.max_life = self.life
+
+    def update(self, dt):
+        self.life -= dt
+
+    def is_done(self):
+        return self.life <= 0
+
+    def draw(self, screen):
+        progress = max(0, self.life / self.max_life)
+        radius = int(self.radius * (1.05 - progress * 0.15))
+        size = radius * 2 + 6
+        surface = pygame.Surface((size, size), pygame.SRCALPHA)
+        center = (size // 2, size // 2)
+        fill_alpha = int(35 * progress)
+        ring_alpha = int(110 * progress)
+        pygame.draw.circle(surface, (255, 150, 0, fill_alpha), center, radius)
+        pygame.draw.circle(surface, (255, 220, 80, ring_alpha), center, radius, 3)
+        screen.blit(surface, (self.pos.x - size // 2, self.pos.y - size // 2))
 
 
 class Shop:
@@ -476,7 +512,7 @@ def start_level_up_if_ready(game):
     game["xp"] -= game["xp_to_next_level"]
     game["level"] += 1
     game["xp_to_next_level"] = xp_requirement(game["level"])
-    game["level_up_cards"] = make_level_cards()
+    game["level_up_cards"] = make_level_cards(game["player"])
     return True
 
 
@@ -486,7 +522,7 @@ def add_xp(game, amount):
     return start_level_up_if_ready(game)
 
 
-def make_level_cards():
+def make_level_cards(player=None):
     cards = [
         {
             "name": "Power Card",
@@ -529,13 +565,13 @@ def make_level_cards():
             "apply": apply_regen_card,
         },
         {
-            "name": "Rocket Launcher",
-            "description": "Unlock or boost explosive rockets",
+            "name": "Rocket Launcher" if player is None or player.rocket_level == 0 else "Rocket Upgrade",
+            "description": "Unlock explosive rockets" if player is None or player.rocket_level == 0 else "Rocket damage, AoE, and volley +",
             "apply": apply_rocket_card,
         },
         {
-            "name": "Laser Rifle",
-            "description": "Unlock or boost piercing lasers",
+            "name": "Laser Rifle" if player is None or player.laser_level == 0 else "Laser Upgrade",
+            "description": "Unlock piercing lasers" if player is None or player.laser_level == 0 else "Laser damage, speed, and pierce +",
             "apply": apply_laser_card,
         },
         {
@@ -639,6 +675,7 @@ def reset_game(shop=None):
     return {
         "player": player,
         "bullets": [],
+        "effects": [],
         "enemies": enemies,
         "spawned": {3},
         "damage_cooldown": 0,
@@ -679,6 +716,7 @@ def damage_enemy(game, enemy, damage):
 
 
 def explode_rocket(game, rocket):
+    game["effects"].append(Explosion(rocket.pos, rocket.splash_radius))
     leveled_up = False
     for enemy in game["enemies"][:]:
         distance = rocket.pos.distance_to(enemy.pos)
@@ -912,6 +950,11 @@ def main():
                     if bullet.is_off_screen():
                         game["bullets"].remove(bullet)
 
+                for effect in game["effects"][:]:
+                    effect.update(dt)
+                    if effect.is_done():
+                        game["effects"].remove(effect)
+
                 for bullet in game["bullets"][:]:
                     for enemy in game["enemies"][:]:
                         enemy_id = id(enemy)
@@ -962,6 +1005,8 @@ def main():
                     game["enemies"].append(spawn_boss(game["game_time"], game["wave_number"]))
                     game["next_boss_time"] += BOSS_WAVE_INTERVAL
 
+            for effect in game["effects"]:
+                effect.draw(screen)
             player.draw(screen)
             for bullet in game["bullets"]:
                 bullet.draw(screen)
